@@ -3,19 +3,20 @@ import { requireEnv } from "@/config";
 import { runTurn } from "@/agent/orchestrator";
 import { getDb } from "@/memory/db";
 import { newId } from "@/memory/ids";
-import { getOrCreateConversation, insertMessage } from "@/memory/repo";
+import { getOrCreateConversation, insertMessage, prepareRetry } from "@/memory/repo";
 import { userIdFromCookies } from "@/memory/user";
 import { isValidLocale, isValidTimeZone, now } from "@/time/clock";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 // The client sends only the new message; the server owns the conversation history (ADR-0007).
 const ChatRequest = z.object({
   conversationId: z.string().regex(/^conv_[A-Za-z0-9]{8,32}$/),
   message: z.object({ text: z.string().trim().min(1).max(8000) }),
   timeZone: z.string().optional(),
-  locale: z.string().optional(),
+  locale: z.string().optional(), // read by the date parser (day-first vs month-first)
+  retry: z.boolean().optional(), // Retry after an error/Stop: answer the stored question again
 });
 
 export async function POST(req: Request) {
@@ -39,7 +40,11 @@ export async function POST(req: Request) {
   if (!conversation) return new Response("Conversation not found.", { status: 404 });
 
   // Save the user's message before any model work, so it survives a failed generation.
-  insertMessage(db, { id: newId("msg"), conversationId, role: "user", content: message.text, tz: timeZone, at });
+  // A retry reuses the stored question (and replaces a partial answer) instead of saving it twice.
+  const reused = parsed.data.retry === true && prepareRetry(db, conversationId, message.text);
+  if (!reused) {
+    insertMessage(db, { id: newId("msg"), conversationId, role: "user", content: message.text, tz: timeZone, at });
+  }
 
-  return runTurn({ db, conversationId, userId, text: message.text, timeZone, locale });
+  return runTurn({ db, conversationId, userId, text: message.text, timeZone, locale, signal: req.signal });
 }

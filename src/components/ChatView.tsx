@@ -26,22 +26,37 @@ export function ChatView({
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
-        prepareSendMessagesRequest: ({ id, messages }) => {
+        prepareSendMessagesRequest: ({ id, messages, trigger }) => {
           const last = messages[messages.length - 1];
           const text = last.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
           const { timeZone, locale } = Intl.DateTimeFormat().resolvedOptions();
-          return { body: { conversationId: id, message: { text }, timeZone, locale } };
+          // Retry re-answers the stored question instead of saving it a second time.
+          const retry = trigger === "regenerate-message";
+          return { body: { conversationId: id, message: { text }, timeZone, locale, retry } };
         },
       }),
     [],
   );
-  const { messages, sendMessage, status, error, stop } = useChat({
+  const { messages, sendMessage, regenerate, status, error, stop } = useChat({
     id: conversationId,
     messages: initialMessages,
     transport,
     onFinish: onTurnFinished,
   });
   const busy = status === "submitted" || status === "streaming";
+  // Answers cut off by Stop: from this session, or marked `aborted` when a saved chat is reopened.
+  const [stoppedIds, setStoppedIds] = useState<Set<string>>(
+    () => new Set(initialMessages.filter((m) => (m.metadata as { aborted?: boolean } | undefined)?.aborted).map((m) => m.id)),
+  );
+
+  function stopAnswer() {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") setStoppedIds((s) => new Set(s).add(last.id));
+    void stop();
+  }
+
+  const last = messages[messages.length - 1];
+  const canRetry = !busy && (error || (last?.role === "assistant" && stoppedIds.has(last.id)) || last?.role === "user");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -87,11 +102,20 @@ export function ChatView({
                 if (part.type === "data-search") return <SearchStep key={i} part={part.data as SearchPart} />;
                 return null;
               })}
+              {stoppedIds.has(m.id) && <p className="mt-1 text-xs text-neutral-500">Stopped</p>}
             </div>
           </div>
         ))}
         {status === "submitted" && <p className="text-sm text-neutral-500">Thinking…</p>}
         {error && <p className="text-sm text-red-600">{error.message}</p>}
+        {canRetry && messages.length > 0 && (
+          <button
+            onClick={() => void regenerate()}
+            className="rounded-lg border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+          >
+            ↻ Retry
+          </button>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -104,7 +128,7 @@ export function ChatView({
           autoFocus
         />
         {busy ? (
-          <button type="button" onClick={stop} className="rounded-xl border px-4">
+          <button type="button" onClick={stopAnswer} className="rounded-xl border px-4">
             Stop
           </button>
         ) : (

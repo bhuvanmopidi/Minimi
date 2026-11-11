@@ -27,6 +27,8 @@ export const config = {
   tavilyApiKey: process.env.TAVILY_API_KEY?.trim() || undefined,
   // Max model steps per turn (each search + read is one step). Caps latency and cost.
   maxSteps: 5,
+  // Hard limit for one turn (planning + searches + answer); the partial answer is kept.
+  turnTimeoutMs: 90_000,
   // Main model's reasoning effort (low | medium | high). Lower = faster first word; see ADR-0012 §4.
   mainEffort: parseEffort(process.env.MAIN_EFFORT) ?? "medium",
   // How many recent messages of the current conversation go to the model verbatim.

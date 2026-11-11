@@ -5,12 +5,11 @@ import {
   createUIMessageStreamResponse,
   stepCountIs,
   streamText,
-  type ModelMessage,
 } from "ai";
 import type Database from "better-sqlite3";
 import { config } from "@/config";
 import { newId } from "@/memory/ids";
-import { insertMessage, insertSearches, recentMessages, setTitleIfMissing } from "@/memory/repo";
+import { getSummary, insertMessage, insertSearches, recentMessages, setTitleIfMissing } from "@/memory/repo";
 import { findHistory, type HistoryResult } from "@/memory/retrieval";
 import { buildCalendar } from "@/time/calendar";
 import { findDateMentions, isMonthFirst } from "@/time/candidates";
@@ -21,9 +20,12 @@ import { createTavilyProvider } from "@/tools/tavily";
 import { createWebSearchTool, runWebSearch, SourceRegistry, type SearchLogEntry, type Source } from "@/tools/webSearch";
 import { recordClaimsInBackground } from "./claims";
 import { renderContext } from "./context";
+import { friendlyError } from "./errors";
+import { toModelMessages } from "./history";
 import { planTurn } from "./planner";
-import { buildSystemPrompt } from "./prompts";
+import { SYSTEM_PROMPT } from "./prompts";
 import { buildPrefetch } from "./searchPlan";
+import { updateSummaryInBackground } from "./summarize";
 
 /** Shown in the UI while memory is checked; the same id is updated in place when the check finishes. */
 export type MemoryStatus =
@@ -37,6 +39,8 @@ export type Turn = {
   text: string;
   timeZone: string;
   locale: string;
+  /** Aborts when the user presses Stop or closes the tab (the request's signal). */
+  signal: AbortSignal;
 };
 
 /** One user turn, end to end (docs/architecture.md). The user message is already saved. */
@@ -46,9 +50,19 @@ export function runTurn(turn: Turn): Response {
   const assistantId = newId("msg");
   const registry = new SourceRegistry();
   const searchLog: SearchLogEntry[] = [];
+  // Stop really stops: the model and any searches are cancelled, and the partial answer is saved.
+  // A hard per-turn limit catches anything that runs away.
+  const signal = AbortSignal.any([turn.signal, AbortSignal.timeout(config.turnTimeoutMs)]);
   // One set of search dependencies per turn: prefetch and the model's own tool calls share citation
   // numbers ([n] stays unique across both) and the snapshots saved with the answer.
-  const searchDeps = { db, provider: createTavilyProvider(config.tavilyApiKey), registry, searchLog, now };
+  const searchDeps = {
+    db,
+    provider: createTavilyProvider(config.tavilyApiKey),
+    registry,
+    searchLog,
+    now,
+    abortSignal: signal,
+  };
 
   const stream = createUIMessageStream({
     generateId: () => assistantId,
@@ -126,8 +140,12 @@ export function runTurn(turn: Turn): Response {
         search = { sources: [...sources.values()].sort((a, b) => a.n - b.n), errors, fetchedAt: now().toISOString() };
       }
 
+      if (signal.aborted) return; // stopped while planning or searching: nothing to answer
+
       // ⑨ context block, attached to the latest user message for the model only
       const context = renderContext({
+        nowLabel: describeNow(startedAt, timeZone),
+        summary: getSummary(db, conversationId).summary,
         intent: plan.intent,
         dates,
         history,
@@ -135,10 +153,7 @@ export function runTurn(turn: Turn): Response {
         search,
         timeZone,
       });
-      const messages: ModelMessage[] = recent.map((m, i) => ({
-        role: m.role,
-        content: i === recent.length - 1 && context ? `${context}\n\n${m.content}` : m.content,
-      }));
+      const messages = toModelMessages(recent, context);
 
       // ⑩ the answer: Sonnet with web_search as its one tool
       const prefetchMs = Date.now() - searchStarted;
@@ -147,11 +162,16 @@ export function runTurn(turn: Turn): Response {
       const stepLog: string[] = [];
       const result = streamText({
         model: anthropic(config.mainModel),
-        system: buildSystemPrompt({ now: startedAt, timeZone }),
-        messages,
+        messages: [
+          // Cache breakpoint after the static system prompt: tools + system are reused across turns.
+          { role: "system", content: SYSTEM_PROMPT, providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } },
+          ...messages,
+        ],
         tools: { web_search: createWebSearchTool(searchDeps) },
         providerOptions: { anthropic: { effort: config.mainEffort } },
         stopWhen: stepCountIs(config.maxSteps),
+        maxRetries: 2, // overloaded / rate-limited: retried with backoff before the user sees an error
+        abortSignal: signal,
         onChunk: ({ chunk }) => {
           if (chunk.type === "text-delta" && firstTokenMs === null) firstTokenMs = Date.now() - answerStarted;
         },
@@ -159,11 +179,14 @@ export function runTurn(turn: Turn): Response {
           const calls = step.toolCalls.map((c) => JSON.stringify(c.input)).join(" ");
           stepLog.push(`${Date.now() - answerStarted}ms${calls ? ` tool:${calls}` : ""}`);
         },
-        onFinish: ({ steps }) => {
-          // One line per turn, so latency regressions are visible in the server log.
+        onFinish: ({ steps, totalUsage, providerMetadata }) => {
+          // One line per turn, so latency and caching regressions are visible in the server log.
+          const written = (providerMetadata?.anthropic as { cacheCreationInputTokens?: number } | undefined)
+            ?.cacheCreationInputTokens;
           console.log(
             `[turn] intent=${plan.intent} planner=${planMs}ms(${source}) prefetch=${batches.length ? `${prefetchMs}ms/${batches.reduce((n, b) => n + b.queries.length, 0)}q` : "-"} ` +
-              `context=${context?.length ?? 0}ch first_token=${firstTokenMs}ms answer=${Date.now() - answerStarted}ms steps=${steps.length} [${stepLog.join(" | ")}]`,
+              `context=${context.length}ch first_token=${firstTokenMs}ms answer=${Date.now() - answerStarted}ms steps=${steps.length} ` +
+              `tokens_in=${totalUsage.inputTokens} cache_read=${totalUsage.cachedInputTokens ?? 0} cache_write=${written ?? 0} [${stepLog.join(" | ")}]`,
           );
         },
       });
@@ -189,12 +212,13 @@ export function runTurn(turn: Turn): Response {
         });
         insertSearches(db, assistantId, searchLog);
       })();
-      // ⑬ claims ledger, in the background: the user already has the answer.
+      // ⑬ background work: the user already has the answer.
       if (!isAborted) recordClaimsInBackground(db, assistantId, text, registry.list(), savedAt);
+      updateSummaryInBackground(db, conversationId);
     },
     onError: (error) => {
       console.error("[chat] stream error", error);
-      return "Something went wrong while generating the answer. Please try again.";
+      return friendlyError(error);
     },
   });
 

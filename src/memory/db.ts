@@ -70,6 +70,10 @@ const migrations: string[] = [
     expires_at   TEXT NOT NULL
   );
   `,
+  // 2 (Phase 4): rolling summary of long conversations covers messages up to this timestamp.
+  `
+  ALTER TABLE conversations ADD COLUMN summary_through TEXT;
+  `,
 ];
 
 function migrate(db: Database.Database) {

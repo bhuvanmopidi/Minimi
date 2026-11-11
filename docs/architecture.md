@@ -13,7 +13,7 @@ BROWSER   ① sends {conversationId, message, timeZone, locale}
              │
 SERVER    ② identify user (cookie) + conversation                     Phase 0 ✅
           ③ save the user message immediately                          Phase 0 ✅
-          ④ load recent turns (+ summary of older ones)                Phase 0 ✅ (summary: Phase 4)
+          ④ load recent turns (+ summary of older ones)                Phase 0 ✅ / 4 ✅
           ⑤ date candidates (chrono-node, locale-aware)                Phase 2 ✅
           ⑥ plan: ONE Haiku call → JSON plan (calls nothing)           Phase 2 ✅ / 3 ✅ (intent, searches, title)
           ⑦ validate dates in code                                     Phase 2 ✅
@@ -24,7 +24,7 @@ SERVER    ② identify user (cookie) + conversation                     Phase 0 
           ⑩ Sonnet streams the answer; may call web_search again       Phase 1 ✅
           ⑪ stream status → sources → text to the browser              Phase 1 ✅
           ⑫ save the answer + searches                                 Phase 1 ✅
-          ⑬ background: extract claims (Haiku)                         Phase 3 ✅ (summaries: Phase 4)
+          ⑬ background: extract claims, update summary (Haiku)         Phase 3 ✅ / 4 ✅
 ```
 
 ## Stage by stage
@@ -47,8 +47,9 @@ Times are stored in UTC together with the user's timezone, so "3 November" can l
 against the user's *local* day.
 
 ### ④ Load context
-The last 12 messages of the conversation, oldest first. From Phase 4, older turns are compressed
-into a rolling summary.
+The last 12 messages of the conversation, oldest first, always starting at a user message. The
+last 3 answers carry the URLs of the sources they cited. Older messages are folded into a rolling
+summary (≤250 words) that is updated in the background ([ADR-0013](decisions/0013-robustness-long-chats.md)).
 
 ### ⑤ Date candidates (code)
 chrono-node finds date expressions and turns them into candidate dates. It uses the locale to read
@@ -85,9 +86,11 @@ fails, code falls back to chrono's candidate, or tells the model the date is unr
   Details: [ADR-0010](decisions/0010-web-search-tool.md).
 
 ### ⑨ Context for the main model
-A fixed system prompt (prompt-cached) + the conversation + a per-turn context block:
+A fixed system prompt (byte-identical across turns, so it's prompt-cached together with the tool
+definition) + the conversation + a per-turn context block, capped in size:
 ```xml
-<now>…</now> <intent>recheck</intent> <resolved_dates>…</resolved_dates>
+<now>…</now> <earlier_in_this_conversation>…</earlier_in_this_conversation>
+<intent>recheck</intent> <resolved_dates>…</resolved_dates>
 <history status="found"> …what the user asked, what we answered, the claims… </history>
 <search_results> [1] … [2] … </search_results>
 ```
@@ -104,8 +107,9 @@ One stream carries status lines, sources, tool activity and text, rendered as ea
 
 ### ⑫ Save the answer
 The assistant message is saved with its full `parts_json` (so a reopened chat looks the same), plus
-an `aborted` flag if the user pressed Stop. The model stream keeps running if the tab closes, so the
-save always happens.
+an `aborted` flag if the user pressed Stop. **Stop really stops**: the model and searches are
+cancelled and the partial answer is saved. **Retry** reuses the stored question and replaces a
+partial answer. Provider errors are retried twice, then shown as a short actionable message.
 
 ### ⑬ Background work
 Haiku extracts structured claims from the answer into the ledger, so future "has it changed?"

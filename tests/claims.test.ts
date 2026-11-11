@@ -9,6 +9,7 @@ import { getOrCreateConversation, insertClaims, insertMessage, setTitleIfMissing
 import { findHistory, type HistoryResult } from "@/memory/retrieval";
 import type { Source } from "@/tools/webSearch";
 
+const NOW = "Wednesday 11 November 2026, 15:30 (Asia/Kolkata)";
 const sources: Source[] = [
   { n: 1, title: "Neon pricing", url: "https://neon.com/pricing", domain: "neon.com", published: "2026-11-06", snippet: "…" },
   { n: 2, title: "Supabase pricing", url: "https://supabase.com/pricing", domain: "supabase.com", snippet: "…" },
@@ -127,6 +128,7 @@ describe("buildPrefetch", () => {
 describe("context with facts and prefetched results", () => {
   it("lists the facts said then and the numbered search results", () => {
     const out = renderContext({
+      nowLabel: NOW,
       intent: "recheck",
       dates: { resolved: [], unresolved: [] },
       history: {

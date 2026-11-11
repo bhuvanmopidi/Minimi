@@ -7,16 +7,26 @@ import { formatInstant } from "@/time/zone";
 
 // The per-turn context block (docs/architecture.md, stage ⑨). It is attached to the latest user
 // message for the model only. It is never stored, so the conversation history stays clean.
+// Everything that changes per turn lives here, including "now", so the system prompt stays
+// byte-identical and can be prompt-cached.
+
+// Size budget for prefetched results (~3.5k tokens): best-ranked sources first, the rest dropped.
+const SEARCH_RESULTS_BUDGET_CHARS = 14_000;
 
 export function renderContext(opts: {
+  nowLabel: string;
+  summary?: string | null; // rolling summary of this conversation's older messages
   intent?: Intent;
   dates: DateResolution;
   history: HistoryResult | null; // null when the planner said history isn't needed
   historyFromFallback: boolean;
   search?: { sources: Source[]; errors: string[]; fetchedAt: string } | null; // prefetched before the answer
   timeZone: string;
-}): string | null {
-  const sections: string[] = [];
+}): string {
+  const sections: string[] = [`<now>${opts.nowLabel}</now>`];
+  if (opts.summary) {
+    sections.push(`<earlier_in_this_conversation>\n${opts.summary}\n</earlier_in_this_conversation>`);
+  }
   if (opts.intent === "recheck") sections.push("<intent>recheck: compare each fact under <facts_then> with the search results</intent>");
 
   if (opts.dates.resolved.length) {
@@ -52,16 +62,21 @@ export function renderContext(opts: {
 
   const s = opts.search;
   if (s && (s.sources.length || s.errors.length)) {
-    const lines = s.sources.map(
-      (src) => `[${src.n}] ${src.title} (${src.domain}${src.published ? `, published ${src.published}` : ""})\n${src.snippet}`,
-    );
+    const lines: string[] = [];
+    let used = 0;
+    for (const src of s.sources) {
+      const line = `[${src.n}] ${src.title} (${src.domain}${src.published ? `, published ${src.published}` : ""})\n${src.snippet}`;
+      if (used + line.length > SEARCH_RESULTS_BUDGET_CHARS) break;
+      lines.push(line);
+      used += line.length;
+    }
     const errors = s.errors.length ? `\n<search_errors>${s.errors.join("; ")}</search_errors>` : "";
     sections.push(
       `<search_results fetched="${formatInstant(s.fetchedAt, opts.timeZone)}" note="searched for you before answering; cite as [n], search again only if something is missing">\n${lines.join("\n\n")}${errors}\n</search_results>`,
     );
   }
 
-  return sections.length ? `<context>\n${sections.join("\n")}\n</context>` : null;
+  return `<context>\n${sections.join("\n")}\n</context>`;
 }
 
 function renderConversation(c: FoundConversation, timeZone: string): string {

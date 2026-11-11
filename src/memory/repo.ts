@@ -119,6 +119,35 @@ export function setTitleIfMissing(db: Database.Database, conversationId: string,
   db.prepare("UPDATE conversations SET title = ? WHERE id = ? AND title IS NULL").run(title, conversationId);
 }
 
+/** The rolling summary of a long conversation, and the newest message it covers. */
+export function getSummary(db: Database.Database, conversationId: string): { summary: string | null; through: string | null } {
+  const row = db.prepare("SELECT summary, summary_through FROM conversations WHERE id = ?").get(conversationId) as
+    | { summary: string | null; summary_through: string | null }
+    | undefined;
+  return { summary: row?.summary ?? null, through: row?.summary_through ?? null };
+}
+
+export function saveSummary(db: Database.Database, conversationId: string, summary: string, through: string): void {
+  db.prepare("UPDATE conversations SET summary = ?, summary_through = ? WHERE id = ?").run(summary, through, conversationId);
+}
+
+/**
+ * Retry after an error or a Stop: reuse the stored user message instead of saving it twice.
+ * If a (partial) answer to it was saved, that answer is removed so the retry replaces it.
+ * Returns false when the conversation doesn't end with this question (then it's a normal send).
+ */
+export function prepareRetry(db: Database.Database, conversationId: string, text: string): boolean {
+  const last = db
+    .prepare("SELECT id, role, content FROM messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 2")
+    .all(conversationId) as { id: string; role: Role; content: string }[];
+  if (last[0]?.role === "user" && last[0].content === text) return true;
+  if (last[0]?.role === "assistant" && last[1]?.role === "user" && last[1].content === text) {
+    db.prepare("DELETE FROM messages WHERE id = ?").run(last[0].id); // claims and searches cascade
+    return true;
+  }
+  return false;
+}
+
 export type ConversationSummary = { id: string; title: string; updatedAt: string };
 
 /** The user's conversations for the sidebar, most recent first. Untitled ones use their first question. */
@@ -134,6 +163,13 @@ export function listConversations(db: Database.Database, userId: string, limit =
        ORDER BY c.updated_at DESC LIMIT ?`,
     )
     .all(userId, limit) as ConversationSummary[];
+}
+
+/** All messages of a conversation, oldest first (no ownership check: for server-side jobs). */
+export function allMessages(db: Database.Database, conversationId: string): MessageRow[] {
+  return db
+    .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, rowid")
+    .all(conversationId) as MessageRow[];
 }
 
 /** All messages of a conversation, oldest first, or null if it isn't this user's. */

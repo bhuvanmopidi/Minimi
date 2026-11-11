@@ -8,6 +8,7 @@ import { buildCalendar } from "@/time/calendar";
 import { findDateMentions } from "@/time/candidates";
 import { formatDay } from "@/time/zone";
 
+const NOW = "Wednesday 11 November 2026, 15:30 (Asia/Kolkata)";
 const today = "2026-11-11";
 const input = (message: string): PlanInput => ({
   message,
@@ -89,12 +90,15 @@ describe("renderContext", () => {
     unresolved: [],
   };
 
-  it("is omitted entirely when there's nothing to say", () => {
-    expect(renderContext({ dates: { resolved: [], unresolved: [] }, history: null, historyFromFallback: false, timeZone: "UTC" })).toBeNull();
+  it("always carries the current date and time, even when there is nothing else", () => {
+    expect(renderContext({ nowLabel: NOW, dates: { resolved: [], unresolved: [] }, history: null, historyFromFallback: false, timeZone: "UTC" })).toBe(`<context>
+<now>${NOW}</now>
+</context>`);
   });
 
   it("states the resolved dates and an explicit not_found, so the model can't invent history", () => {
     const out = renderContext({
+      nowLabel: NOW,
       dates,
       history: { status: "not_found", mode: "date", nearest: [] },
       historyFromFallback: false,
@@ -106,6 +110,7 @@ describe("renderContext", () => {
 
   it("shows found exchanges in the user's timezone and notes an alternative-date match", () => {
     const out = renderContext({
+      nowLabel: NOW,
       dates,
       history: {
         status: "found",

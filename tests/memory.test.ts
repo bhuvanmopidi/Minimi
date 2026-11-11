@@ -7,7 +7,7 @@ const T = (day: number, hour = 10) => new Date(Date.UTC(2026, 10, day, hour)).to
 describe("database", () => {
   it("runs migrations once and records the schema version", () => {
     const db = openDatabase(":memory:");
-    expect(db.pragma("user_version", { simple: true })).toBe(1);
+    expect(db.pragma("user_version", { simple: true })).toBe(2);
   });
 
   it("indexes messages for full-text search", () => {
