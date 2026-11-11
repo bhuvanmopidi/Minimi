@@ -22,8 +22,15 @@ const input = (message: string): PlanInput => ({
 describe("planTurn", () => {
   it("keeps well-formed decisions and drops malformed ones", async () => {
     const generate: GeneratePlan = async () => ({
+      intent: "recheck",
       needsHistory: true,
       historyQuery: "  postgres hosting  ",
+      searches: [
+        { query: "postgres hosting price changes", since: "2026-11-03", topic: "news" },
+        { query: "x" }, // too short → dropped
+        { query: "neon pricing", since: "3 Nov" }, // invalid since → dropped, query kept
+      ],
+      title: '"Postgres pricing re-check"',
       dates: [
         { choice: "candidate", mention: 0, reading: 1, confidence: "medium" },
         { choice: "candidate" }, // missing indexes → dropped
@@ -33,7 +40,13 @@ describe("planTurn", () => {
     });
     const { plan, source } = await planTurn(input("Last Tuesday I asked about Postgres"), generate);
     expect(source).toBe("planner");
+    expect(plan.intent).toBe("recheck");
     expect(plan.historyQuery).toBe("postgres hosting");
+    expect(plan.title).toBe("Postgres pricing re-check");
+    expect(plan.searches).toEqual([
+      { query: "postgres hosting price changes", since: "2026-11-03", topic: "news" },
+      { query: "neon pricing", since: undefined, topic: "general" },
+    ]);
     expect(plan.dates).toEqual([
       { choice: "candidate", mention: 0, reading: 1, confidence: "medium" },
       { choice: "own", text: "the day we did CRMs", start: "2026-11-09", end: undefined, weekday: "Monday", confidence: "medium" },
@@ -46,7 +59,13 @@ describe("planTurn", () => {
       throw new Error("timeout");
     });
     expect(source).toBe("fallback");
-    expect(plan).toEqual({ needsHistory: true, historyQuery: "What did I ask on 3 November?", dates: null });
+    expect(plan).toEqual({
+      intent: "new_question",
+      needsHistory: true,
+      historyQuery: "What did I ask on 3 November?",
+      searches: [], // left to the main model's web_search tool
+      dates: null,
+    });
   });
 
   it("gives the planner the calendar, locale and numbered readings", () => {
@@ -98,7 +117,7 @@ describe("renderContext", () => {
           {
             id: "c1",
             title: "Postgres hosting",
-            exchanges: [{ askedAt: "2026-11-03T06:10:00.000Z", question: "Compare Neon…", answer: "Neon is $19…" }],
+            exchanges: [{ askedAt: "2026-11-03T06:10:00.000Z", question: "Compare Neon…", answer: "Neon is $19…", claims: [] }],
           },
         ],
       },

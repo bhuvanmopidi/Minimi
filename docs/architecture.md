@@ -15,16 +15,16 @@ SERVER    ② identify user (cookie) + conversation                     Phase 0 
           ③ save the user message immediately                          Phase 0 ✅
           ④ load recent turns (+ summary of older ones)                Phase 0 ✅ (summary: Phase 4)
           ⑤ date candidates (chrono-node, locale-aware)                Phase 2 ✅
-          ⑥ plan: ONE Haiku call → JSON plan (calls nothing)           Phase 2 ✅ (history + dates; searches: Phase 3)
+          ⑥ plan: ONE Haiku call → JSON plan (calls nothing)           Phase 2 ✅ / 3 ✅ (intent, searches, title)
           ⑦ validate dates in code                                     Phase 2 ✅
-          ⑧ fan-out in parallel:                                       Phase 2 ✅ / 3
-               ├─ history lookup across ALL past chats (SQLite FTS5)   Phase 2 ✅
-               └─ web searches (Tavily, cached)                        Phase 1 ✅ (prefetch: Phase 3)
+          ⑧ history, then searches before the answer:                  Phase 3 ✅
+               ├─ history lookup across ALL past chats (SQLite FTS5)   + the facts each old answer recorded
+               └─ web searches (Tavily, cached, parallel)              planner's + one per recorded fact on a re-check
           ⑨ build context (rules + dates + history + claims + sources)
           ⑩ Sonnet streams the answer; may call web_search again       Phase 1 ✅
           ⑪ stream status → sources → text to the browser              Phase 1 ✅
           ⑫ save the answer + searches                                 Phase 1 ✅
-          ⑬ background: extract claims, update summary (Haiku)         Phase 3/4
+          ⑬ background: extract claims (Haiku)                         Phase 3 ✅ (summaries: Phase 4)
 ```
 
 ## Stage by stage
@@ -92,10 +92,12 @@ A fixed system prompt (prompt-cached) + the conversation + a per-turn context bl
 <search_results> [1] … [2] … </search_results>
 ```
 
-### ⑩ Answer (Sonnet)
+### ⑩ Answer (Sonnet, reasoning effort `medium`)
 Sonnet streams the answer. It has exactly one tool, `web_search({queries[1..4], since?, topic?})`,
-and may use it for up to ~4 extra steps (a small ReAct loop). For re-check questions it compares each
-old claim against fresh evidence: **changed / unchanged / couldn't verify**.
+and may use it for up to ~4 extra steps (a small ReAct loop). The searches run before the answer
+usually cover it in one step. For re-check questions it gives each recorded fact exactly one status:
+**Changed / Unchanged / Couldn't verify / Correction** ([ADR-0012](decisions/0012-recheck-prefetch-effort.md)).
+Every turn logs one `[turn]` line with per-stage timings (planner, prefetch, first token, steps).
 
 ### ⑪ Stream to the browser
 One stream carries status lines, sources, tool activity and text, rendered as each arrives.

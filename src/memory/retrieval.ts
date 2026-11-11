@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { claimsForMessages, type StoredClaim } from "./repo";
 
 // Cross-conversation recall (ADR-0011). Three modes, because the brief's examples need all three:
 //   topic + date  "Last Tuesday I asked about Postgres"   → keyword match within that day
@@ -15,7 +16,8 @@ export type HistoryQuery = {
   excludeMessageIds: string[]; // turns already in the model's context
 };
 
-export type Exchange = { askedAt: string; question: string; answer?: string };
+/** A past question, the answer that followed, and the facts that answer asserted (if recorded). */
+export type Exchange = { askedAt: string; question: string; answer?: string; claims: StoredClaim[] };
 export type FoundConversation = { id: string; title: string; exchanges: Exchange[] };
 
 export type HistoryResult =
@@ -150,17 +152,19 @@ function group(db: Database.Database, hits: Hit[]): FoundConversation[] {
       if (q >= 0 && messages[q].role === "user") questionIndexes.add(q);
     }
 
-    const exchanges = [...questionIndexes]
-      .sort((a, b) => a - b)
-      .slice(0, MAX_EXCHANGES)
-      .map((i) => {
-        const answer = messages[i + 1]?.role === "assistant" ? messages[i + 1].content : undefined;
-        return {
-          askedAt: messages[i].created_at,
-          question: messages[i].content,
-          answer: answer ? truncate(answer, ANSWER_EXCERPT_CHARS) : undefined,
-        };
-      });
+    const picked = [...questionIndexes].sort((a, b) => a - b).slice(0, MAX_EXCHANGES);
+    const answerOf = (i: number) => (messages[i + 1]?.role === "assistant" ? messages[i + 1] : undefined);
+    const claims = claimsForMessages(db, picked.flatMap((i) => answerOf(i)?.id ?? []));
+
+    const exchanges = picked.map((i) => {
+      const answer = answerOf(i);
+      return {
+        askedAt: messages[i].created_at,
+        question: messages[i].content,
+        answer: answer ? truncate(answer.content, ANSWER_EXCERPT_CHARS) : undefined,
+        claims: answer ? (claims.get(answer.id) ?? []) : [],
+      };
+    });
     return { id: conversationId, title, exchanges };
   });
 }

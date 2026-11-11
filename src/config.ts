@@ -13,6 +13,11 @@ export function requireEnv(name: string): string {
   return value;
 }
 
+function parseEffort(value: string | undefined): "low" | "medium" | "high" | undefined {
+  const v = value?.trim().toLowerCase();
+  return v === "low" || v === "medium" || v === "high" ? v : undefined;
+}
+
 export const config = {
   mainModel: optional("MAIN_MODEL", "claude-sonnet-5-5"),
   fastModel: optional("FAST_MODEL", "claude-haiku-5-5"),
@@ -22,6 +27,8 @@ export const config = {
   tavilyApiKey: process.env.TAVILY_API_KEY?.trim() || undefined,
   // Max model steps per turn (each search + read is one step). Caps latency and cost.
   maxSteps: 5,
+  // Main model's reasoning effort (low | medium | high). Lower = faster first word; see ADR-0012 §4.
+  mainEffort: parseEffort(process.env.MAIN_EFFORT) ?? "medium",
   // How many recent messages of the current conversation go to the model verbatim.
   recentTurnLimit: 12,
 };

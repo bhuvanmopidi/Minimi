@@ -78,6 +78,47 @@ export function insertSearches(
   })();
 }
 
+/** A checkable fact an answer asserted (the claims ledger, ADR-0006). */
+export type Claim = {
+  entity: string;
+  attribute: string;
+  value: string;
+  sourceUrl?: string | null;
+  sourceDate?: string | null;
+};
+
+export type StoredClaim = Claim & { messageId: string; assertedAt: string };
+
+export function insertClaims(db: Database.Database, messageId: string, claims: Claim[], assertedAt: string): void {
+  const stmt = db.prepare(
+    `INSERT INTO claims (id, message_id, entity, attribute, value, source_url, source_date, asserted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  db.transaction(() => {
+    claims.forEach((c, i) =>
+      stmt.run(`${messageId}_c${i}`, messageId, c.entity, c.attribute, c.value, c.sourceUrl ?? null, c.sourceDate ?? null, assertedAt),
+    );
+  })();
+}
+
+/** Claims for the given answers, keyed by message id. */
+export function claimsForMessages(db: Database.Database, messageIds: string[]): Map<string, StoredClaim[]> {
+  const rows = db
+    .prepare(
+      `SELECT message_id AS messageId, entity, attribute, value, source_url AS sourceUrl,
+              source_date AS sourceDate, asserted_at AS assertedAt
+       FROM claims WHERE message_id IN (SELECT value FROM json_each(?)) ORDER BY rowid`,
+    )
+    .all(JSON.stringify(messageIds)) as StoredClaim[];
+  const byMessage = new Map<string, StoredClaim[]>();
+  for (const r of rows) byMessage.set(r.messageId, [...(byMessage.get(r.messageId) ?? []), r]);
+  return byMessage;
+}
+
+export function setTitleIfMissing(db: Database.Database, conversationId: string, title: string): void {
+  db.prepare("UPDATE conversations SET title = ? WHERE id = ? AND title IS NULL").run(title, conversationId);
+}
+
 export type ConversationSummary = { id: string; title: string; updatedAt: string };
 
 /** The user's conversations for the sidebar, most recent first. Untitled ones use their first question. */

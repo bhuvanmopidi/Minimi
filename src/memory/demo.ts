@@ -1,12 +1,16 @@
 import type Database from "better-sqlite3";
 import { addDays, dayIn, dayStartUtc, weekdayOf, type Day } from "@/time/zone";
-import { insertMessage } from "./repo";
+import { insertClaims, insertMessage, type Claim } from "./repo";
 
 // Demo history for trying memory questions on a fresh install. Titles are marked "Demo ·" and the
 // data is only created when the user clicks "Load demo chats". Dates are relative to today, so the
 // challenge's example questions ("On Monday we shortlisted…", "Last Tuesday I asked…") always line up.
 
-type DemoChat = { key: string; title: string; day: Day; time: string; turns: [string, string][] };
+// `claims` are what the claims ledger would have recorded for the answer (ADR-0006), so re-check
+// questions on demo chats work the same way as on real ones.
+type DemoChat = { key: string; title: string; day: Day; time: string; turns: [string, string][]; claims: Claim[] };
+
+const price = (entity: string, attribute: string, value: string): Claim => ({ entity, attribute, value });
 
 export function demoChats(today: Day): DemoChat[] {
   const mostRecent = (weekday: number) => {
@@ -37,6 +41,13 @@ export function demoChats(today: Day): DemoChat[] {
             "For 20 seats that's roughly $460–$2,000/month. HubSpot and Salesforce are the most complete; Pipedrive and Attio are the easiest to roll out quickly.",
         ],
       ],
+      claims: [
+        price("HubSpot Sales Hub", "Professional plan price", "$100/seat/month (annual)"),
+        price("Salesforce Sales Cloud", "Pro Suite price", "$100/user/month (annual)"),
+        price("Pipedrive", "Advanced plan price", "$39/seat/month (annual)"),
+        price("Zoho CRM", "Professional plan price", "$23/user/month (annual)"),
+        price("Attio", "Pro plan price", "$34/seat/month (annual)"),
+      ],
     },
     {
       key: "pg",
@@ -53,6 +64,11 @@ export function demoChats(today: Day): DemoChat[] {
             "Railway is cheapest to start; Neon is the best fit if you want branching for preview environments.",
         ],
       ],
+      claims: [
+        price("Neon", "Launch plan price", "$19/month"),
+        price("Supabase", "Pro plan price", "$25/month per project"),
+        price("Railway", "Hobby plan price", "$5/month, then usage-based"),
+      ],
     },
     {
       key: "laptop",
@@ -65,6 +81,7 @@ export function demoChats(today: Day): DemoChat[] {
           "Under $2,000, look for an NVIDIA RTX 4070 (8 GB VRAM) or better, 32 GB RAM and a good cooling design. A MacBook Pro with M-series Pro chip is the pick if you mostly run inference and want battery life.",
         ],
       ],
+      claims: [],
     },
   ];
 }
@@ -90,6 +107,7 @@ export function seedDemoHistory(db: Database.Database, opts: { userId: string; t
         insertMessage(db, { id: `${id}_q${i}`, conversationId: id, role: "user", content: question, tz: opts.timeZone, at: at(i * 2) });
         insertMessage(db, { id: `${id}_a${i}`, conversationId: id, role: "assistant", content: answer, at: at(i * 2 + 1) });
       });
+      if (chat.claims.length) insertClaims(db, `${id}_a0`, chat.claims, at(1));
     }
   })();
   return chats.length;

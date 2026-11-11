@@ -1,4 +1,7 @@
+import type { StoredClaim } from "@/memory/repo";
 import type { FoundConversation, HistoryResult } from "@/memory/retrieval";
+import type { Source } from "@/tools/webSearch";
+import type { Intent } from "./planner";
 import type { DateResolution } from "@/time/validate";
 import { formatInstant } from "@/time/zone";
 
@@ -6,12 +9,15 @@ import { formatInstant } from "@/time/zone";
 // message for the model only. It is never stored, so the conversation history stays clean.
 
 export function renderContext(opts: {
+  intent?: Intent;
   dates: DateResolution;
   history: HistoryResult | null; // null when the planner said history isn't needed
   historyFromFallback: boolean;
+  search?: { sources: Source[]; errors: string[]; fetchedAt: string } | null; // prefetched before the answer
   timeZone: string;
 }): string | null {
   const sections: string[] = [];
+  if (opts.intent === "recheck") sections.push("<intent>recheck: compare each fact under <facts_then> with the search results</intent>");
 
   if (opts.dates.resolved.length) {
     const lines = opts.dates.resolved.map(
@@ -44,6 +50,17 @@ export function renderContext(opts: {
     }
   }
 
+  const s = opts.search;
+  if (s && (s.sources.length || s.errors.length)) {
+    const lines = s.sources.map(
+      (src) => `[${src.n}] ${src.title} (${src.domain}${src.published ? `, published ${src.published}` : ""})\n${src.snippet}`,
+    );
+    const errors = s.errors.length ? `\n<search_errors>${s.errors.join("; ")}</search_errors>` : "";
+    sections.push(
+      `<search_results fetched="${formatInstant(s.fetchedAt, opts.timeZone)}" note="searched for you before answering; cite as [n], search again only if something is missing">\n${lines.join("\n\n")}${errors}\n</search_results>`,
+    );
+  }
+
   return sections.length ? `<context>\n${sections.join("\n")}\n</context>` : null;
 }
 
@@ -53,10 +70,24 @@ function renderConversation(c: FoundConversation, timeZone: string): string {
       (e) =>
         `<exchange at="${formatInstant(e.askedAt, timeZone)}">\n<user_asked>${e.question}</user_asked>` +
         (e.answer ? `\n<you_answered>${e.answer}</you_answered>` : "") +
+        (e.claims.length ? `\n<facts_then>\n${e.claims.map(renderClaim).join("\n")}\n</facts_then>` : "") +
         `\n</exchange>`,
     )
     .join("\n");
   return `<conversation title="${escapeAttr(c.title)}">\n${exchanges}\n</conversation>`;
+}
+
+/** "- Neon | Launch plan price | $19/month | source neon.tech, 2026-11-01" */
+function renderClaim(c: StoredClaim): string {
+  let source = "";
+  if (c.sourceUrl) {
+    try {
+      source = ` | source ${new URL(c.sourceUrl).hostname.replace(/^www\./, "")}${c.sourceDate ? `, ${c.sourceDate}` : ""}`;
+    } catch {
+      source = ` | source ${c.sourceUrl}`;
+    }
+  }
+  return `- ${c.entity} | ${c.attribute} | ${c.value}${source}`;
 }
 
 function escapeAttr(s: string): string {

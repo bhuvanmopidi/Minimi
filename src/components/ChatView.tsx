@@ -83,6 +83,8 @@ export function ChatView({
                 }
                 if (part.type === "data-memory") return <MemoryStep key={i} status={part.data as MemoryStatus} />;
                 if (part.type === "tool-web_search") return <SearchStep key={i} part={part as SearchPart} />;
+                // Searches the server ran before the answer started (same shape as a tool call).
+                if (part.type === "data-search") return <SearchStep key={i} part={part.data as SearchPart} />;
                 return null;
               })}
             </div>

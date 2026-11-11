@@ -10,7 +10,7 @@ import {
 import type Database from "better-sqlite3";
 import { config } from "@/config";
 import { newId } from "@/memory/ids";
-import { insertMessage, insertSearches, recentMessages } from "@/memory/repo";
+import { insertMessage, insertSearches, recentMessages, setTitleIfMissing } from "@/memory/repo";
 import { findHistory, type HistoryResult } from "@/memory/retrieval";
 import { buildCalendar } from "@/time/calendar";
 import { findDateMentions, isMonthFirst } from "@/time/candidates";
@@ -18,10 +18,12 @@ import { describeNow, now } from "@/time/clock";
 import { resolveDates, toUtcRange, type DateResolution } from "@/time/validate";
 import { dayIn } from "@/time/zone";
 import { createTavilyProvider } from "@/tools/tavily";
-import { createWebSearchTool, SourceRegistry, type SearchLogEntry } from "@/tools/webSearch";
+import { createWebSearchTool, runWebSearch, SourceRegistry, type SearchLogEntry, type Source } from "@/tools/webSearch";
+import { recordClaimsInBackground } from "./claims";
 import { renderContext } from "./context";
 import { planTurn } from "./planner";
 import { buildSystemPrompt } from "./prompts";
+import { buildPrefetch } from "./searchPlan";
 
 /** Shown in the UI while memory is checked; the same id is updated in place when the check finishes. */
 export type MemoryStatus =
@@ -44,6 +46,9 @@ export function runTurn(turn: Turn): Response {
   const assistantId = newId("msg");
   const registry = new SourceRegistry();
   const searchLog: SearchLogEntry[] = [];
+  // One set of search dependencies per turn: prefetch and the model's own tool calls share citation
+  // numbers ([n] stays unique across both) and the snapshots saved with the answer.
+  const searchDeps = { db, provider: createTavilyProvider(config.tavilyApiKey), registry, searchLog, now };
 
   const stream = createUIMessageStream({
     generateId: () => assistantId,
@@ -58,7 +63,7 @@ export function runTurn(turn: Turn): Response {
       const mentions = findDateMentions(turn.text, { today, locale: turn.locale });
 
       // ⑥ one planner call decides history + date meanings
-      const { plan, source } = await planTurn({
+      const { plan, source, ms: planMs } = await planTurn({
         message: turn.text,
         recentTurns: recent.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
         nowLabel: describeNow(startedAt, timeZone),
@@ -67,6 +72,8 @@ export function runTurn(turn: Turn): Response {
         calendar: buildCalendar(today),
         mentions,
       });
+
+      if (plan.title && recent.length === 1) setTitleIfMissing(db, conversationId, plan.title);
 
       // ⑦ code validates the planner's date decisions
       const dates = resolveDates(mentions, plan.dates, { today });
@@ -93,28 +100,72 @@ export function runTurn(turn: Turn): Response {
         });
       }
 
+      // ⑧b searches start before the answer: the planner's, plus one per recorded fact on a re-check.
+      //     Shown live like tool calls; they share the turn's citation numbers and cache.
+      const batches = buildPrefetch(plan, history);
+      let search: { sources: Source[]; errors: string[]; fetchedAt: string } | null = null;
+      const searchStarted = Date.now();
+      if (batches.length) {
+        batches.forEach((input, i) =>
+          writer.write({ type: "data-search", id: `prefetch-${i}`, data: { state: "input-available", input } }),
+        );
+        const outputs = await Promise.all(batches.map((input) => runWebSearch(input, searchDeps)));
+        outputs.forEach((output, i) =>
+          writer.write({
+            type: "data-search",
+            id: `prefetch-${i}`,
+            data: { state: "output-available", input: batches[i], output },
+          }),
+        );
+        const sources = new Map<number, Source>();
+        const errors: string[] = [];
+        for (const out of outputs) {
+          if ("error" in out) errors.push(out.error);
+          else out.results.forEach((r) => sources.set(r.n, r));
+        }
+        search = { sources: [...sources.values()].sort((a, b) => a.n - b.n), errors, fetchedAt: now().toISOString() };
+      }
+
       // ⑨ context block, attached to the latest user message for the model only
-      const context = renderContext({ dates, history, historyFromFallback: source === "fallback", timeZone });
+      const context = renderContext({
+        intent: plan.intent,
+        dates,
+        history,
+        historyFromFallback: source === "fallback",
+        search,
+        timeZone,
+      });
       const messages: ModelMessage[] = recent.map((m, i) => ({
         role: m.role,
         content: i === recent.length - 1 && context ? `${context}\n\n${m.content}` : m.content,
       }));
 
       // ⑩ the answer: Sonnet with web_search as its one tool
+      const prefetchMs = Date.now() - searchStarted;
+      const answerStarted = Date.now();
+      let firstTokenMs: number | null = null;
+      const stepLog: string[] = [];
       const result = streamText({
         model: anthropic(config.mainModel),
         system: buildSystemPrompt({ now: startedAt, timeZone }),
         messages,
-        tools: {
-          web_search: createWebSearchTool({
-            db,
-            provider: createTavilyProvider(config.tavilyApiKey),
-            registry,
-            searchLog,
-            now,
-          }),
-        },
+        tools: { web_search: createWebSearchTool(searchDeps) },
+        providerOptions: { anthropic: { effort: config.mainEffort } },
         stopWhen: stepCountIs(config.maxSteps),
+        onChunk: ({ chunk }) => {
+          if (chunk.type === "text-delta" && firstTokenMs === null) firstTokenMs = Date.now() - answerStarted;
+        },
+        onStepFinish: (step) => {
+          const calls = step.toolCalls.map((c) => JSON.stringify(c.input)).join(" ");
+          stepLog.push(`${Date.now() - answerStarted}ms${calls ? ` tool:${calls}` : ""}`);
+        },
+        onFinish: ({ steps }) => {
+          // One line per turn, so latency regressions are visible in the server log.
+          console.log(
+            `[turn] intent=${plan.intent} planner=${planMs}ms(${source}) prefetch=${batches.length ? `${prefetchMs}ms/${batches.reduce((n, b) => n + b.queries.length, 0)}q` : "-"} ` +
+              `context=${context?.length ?? 0}ch first_token=${firstTokenMs}ms answer=${Date.now() - answerStarted}ms steps=${steps.length} [${stepLog.join(" | ")}]`,
+          );
+        },
       });
       writer.merge(result.toUIMessageStream({ sendStart: false }));
     },
@@ -125,6 +176,7 @@ export function runTurn(turn: Turn): Response {
         .join("")
         .trim();
       if (!text) return;
+      const savedAt = now().toISOString();
       db.transaction(() => {
         insertMessage(db, {
           id: assistantId,
@@ -133,10 +185,12 @@ export function runTurn(turn: Turn): Response {
           content: text,
           partsJson: JSON.stringify(responseMessage.parts),
           aborted: isAborted,
-          at: now().toISOString(),
+          at: savedAt,
         });
         insertSearches(db, assistantId, searchLog);
       })();
+      // ⑬ claims ledger, in the background: the user already has the answer.
+      if (!isAborted) recordClaimsInBackground(db, assistantId, text, registry.list(), savedAt);
     },
     onError: (error) => {
       console.error("[chat] stream error", error);

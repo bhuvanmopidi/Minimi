@@ -1,6 +1,6 @@
 # 0006: A claims ledger for "what changed since" questions
 
-**Status:** Accepted
+**Status:** Accepted, built in Phase 3 ([0012](0012-recheck-prefetch-effort.md) adds the "Correction" status and the sourced-answers-only rule).
 
 ## Context
 "Has any of them changed pricing since Monday?" needs two things: what we said on Monday, and

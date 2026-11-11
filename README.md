@@ -19,6 +19,7 @@ npm run dev                  # http://localhost:3000
 | `TAVILY_API_KEY` | yes | Web search ([free tier](https://app.tavily.com/)). Without it the agent still runs but says it can't check the web |
 | `MAIN_MODEL` | no | Defaults to `claude-sonnet-5-5` |
 | `FAST_MODEL` | no | Defaults to `claude-haiku-5-5` |
+| `MAIN_EFFORT` | no | `low`, `medium` (default) or `high`: lower answers sooner, higher reasons more |
 | `DATABASE_PATH` | no | Defaults to `./data/minimi.db` (created automatically) |
 | `MOCK_NOW` | no | Freeze "now" for testing date questions, e.g. `2026-11-11T10:00:00Z` |
 
