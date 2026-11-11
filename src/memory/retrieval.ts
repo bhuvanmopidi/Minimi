@@ -80,9 +80,15 @@ export function ftsTerms(topic: string): string[] {
   return [...new Set(words.filter((w) => w.length > 1 && !STOPWORDS.has(w)))].slice(0, 8);
 }
 
+/**
+ * Keyword matches in a time window. How much evidence is required depends on the window:
+ * inside a specific day one keyword is enough (the date already narrows it down); across all time,
+ * a conversation must match at least two distinct keywords. Otherwise a generic word like "pricing"
+ * would "find" any unrelated chat (seen live: a Postgres question matched two CRM chats).
+ */
 function topicHits(db: Database.Database, q: HistoryQuery, terms: string[], w: TimeWindow): Hit[] {
-  const match = terms.map((t) => `"${t.replace(/"/g, "")}"`).join(" OR ");
-  return db
+  const quoted = terms.map((t) => `"${t.replace(/"/g, "")}"`);
+  const hits = db
     .prepare(
       `SELECT m.id, m.conversation_id, m.role, m.created_at
        FROM messages_fts f
@@ -93,7 +99,24 @@ function topicHits(db: Database.Database, q: HistoryQuery, terms: string[], w: T
          AND m.id NOT IN (SELECT value FROM json_each(?))
        ORDER BY bm25(messages_fts) LIMIT 30`,
     )
-    .all(match, q.userId, w.fromUtc, w.toUtc, JSON.stringify(q.excludeMessageIds)) as Hit[];
+    .all(quoted.join(" OR "), q.userId, w.fromUtc, w.toUtc, JSON.stringify(q.excludeMessageIds)) as Hit[];
+
+  const minTerms = w === ALL_TIME ? Math.min(2, terms.length) : 1;
+  if (minTerms <= 1 || !hits.length) return hits;
+
+  // Distinct keywords matched per conversation (across its matched question and answer messages).
+  const ids = JSON.stringify(hits.map((h) => h.id));
+  const termsPerConversation = new Map<string, number>();
+  for (const term of quoted) {
+    const matched = db
+      .prepare(
+        `SELECT DISTINCT m.conversation_id AS c FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
+         WHERE messages_fts MATCH ? AND m.id IN (SELECT value FROM json_each(?))`,
+      )
+      .all(term, ids) as { c: string }[];
+    for (const { c } of matched) termsPerConversation.set(c, (termsPerConversation.get(c) ?? 0) + 1);
+  }
+  return hits.filter((h) => (termsPerConversation.get(h.conversation_id) ?? 0) >= minTerms);
 }
 
 function dateHits(db: Database.Database, q: HistoryQuery, w: TimeWindow): Hit[] {
@@ -178,6 +201,9 @@ const STOPWORDS = new Set(
   (
     "a an and are as at be but by can did do does for from had has have how i if in is it its me my of on or our " +
     "so than that the their them then there these they this to was we were what when where which who why will " +
-    "with you your about any asked ask told tell said say since still today now ago last again"
+    "with you your about any asked ask told tell said say since still today now ago last again " +
+    // Conversation words that describe the question, not its topic.
+    "answer answers answered correct correctly question questions change changed changes true right wrong " +
+    "earlier before discussed talked chat conversation conversations remember recall check recheck"
   ).split(" "),
 );

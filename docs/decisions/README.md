@@ -19,6 +19,7 @@ and what it costs us. All of them were discussed and agreed before any code was 
 | [0012](0012-recheck-prefetch-effort.md) | Re-checks from the claims ledger, searching before the answer, reasoning effort `medium` | Accepted (Phase 3) |
 | [0013](0013-robustness-long-chats.md) | Stop really stops, safe Retry, friendly errors, rolling summary, context budget, prompt caching | Accepted (Phase 4) |
 | [0014](0014-chat-ui.md) | Chat UI: safe markdown, citation chips, one search line + cited sources, visible time | Accepted (Phase 5) |
+| [0015](0015-fresh-install-and-evals.md) | Fresh-install fixes (no false matches, help first) and black-box evals with an LLM judge | Accepted (Phase 6) |
 
 Format: *Context → Options → Decision → Consequences.* A changed decision gets a new record that
 supersedes the old one. Old records are not rewritten.

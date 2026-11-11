@@ -95,6 +95,32 @@ describe("findHistory", () => {
     expect(r.status).toBe("not_found");
   });
 
+  it("a single generic keyword is not enough without a date (regression: Postgres question 'found' CRM chats)", () => {
+    const db = openDatabase(":memory:");
+    getOrCreateConversation(db, { id: "conv_crm1", userId: "usr_me", at: at("2026-11-11", "21:39") });
+    insertMessage(db, {
+      id: "crm_q",
+      conversationId: "conv_crm1",
+      role: "user",
+      content: "Has any of the 5 CRM tools changed pricing since Monday?",
+      at: at("2026-11-11", "21:39"),
+    });
+    const r = findHistory(
+      db,
+      base({ topic: "postgres hosting pricing", windows: [day("2026-11-03")], alternativeWindows: [day("2026-11-10")] }),
+    );
+    expect(r.status).toBe("not_found");
+  });
+
+  it("inside a named day, one keyword is enough", () => {
+    const r = findHistory(seed(), base({ topic: "postgres benchmarks", windows: [day("2026-11-03")] }));
+    expect(r).toMatchObject({ status: "found", otherDate: false });
+  });
+
+  it("drops words that describe the question rather than its topic", () => {
+    expect(ftsTerms("is my answer still correct, what changed")).toEqual([]);
+  });
+
   it("is skipped when there's neither a topic nor a date", () => {
     expect(findHistory(seed(), base({ topic: "what did I ask" }))).toEqual({ status: "skipped" });
   });

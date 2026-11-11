@@ -10,7 +10,7 @@ The agent is built in phases. Each one ends with a review, a commit and a push.
 | [3](phase-3-recheck.md) | Claims ledger, searching before the answer, fixed per-fact statuses, titles, reasoning effort | ✅ Done |
 | [4](phase-4-robustness.md) | Real Stop, Retry, friendly errors, rolling summary, sources of past answers, context budget, prompt caching | ✅ Done |
 | [5](phase-5-ui.md) | Markdown, citation chips, compact searches + cited sources, timestamps and date dividers, input comforts | ✅ Done |
-| 6 | Evals, `DESIGN.md`, final README, public repo | Planned |
+| [6](phase-6-ship.md) | Fresh-install fixes (false matches, help-first), `npm run eval`, `DESIGN.md`, fresh-clone check | ✅ Done |
 
 Phase 2 took over the planner's history and date decisions and the demo data from later phases.
 See [ADR-0011](../decisions/0011-memory-recall.md).

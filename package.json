@@ -11,7 +11,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "node scripts/eval.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.115",

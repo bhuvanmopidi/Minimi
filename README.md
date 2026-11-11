@@ -3,15 +3,18 @@
 A chat agent with one tool, **web search**, that also remembers past conversations and can answer
 questions like *"Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"*
 
-Built for the Minimi hiring challenge. It's built phase by phase, and each phase is documented.
+Built for the Minimi hiring challenge. **Start with [DESIGN.md](DESIGN.md)**: one page on how it works,
+why, what was rejected, and what's next.
 
 ![A re-check answer: it finds the 3 November chat, searches each fact again, and labels what changed](docs/images/recheck.png)
 
 ## Quick start
 
+Needs Node 20 or newer.
+
 ```bash
 npm install
-cp .env.example .env.local   # then fill in the keys
+cp .env.example .env.local   # Windows PowerShell: Copy-Item .env.example .env.local, then fill in the keys
 npm run dev                  # http://localhost:3000
 ```
 
@@ -25,7 +28,11 @@ npm run dev                  # http://localhost:3000
 | `DATABASE_PATH` | no | Defaults to `./data/minimi.db` (created automatically) |
 | `MOCK_NOW` | no | Freeze "now" for testing date questions, e.g. `2026-11-11T10:00:00Z` |
 
-Other scripts: `npm test` (unit tests), `npm run typecheck`.
+Other scripts:
+- `npm test`: unit tests (dates, history search, planner, claims, robustness, UI helpers)
+- `npm run eval`: end-to-end evals against the running app (start `npm run dev` first). They use their
+  own anonymous users, so your chats are untouched. Results go to [evals/latest.md](evals/latest.md).
+- `npm run typecheck`
 
 ### Trying the memory features
 A fresh install has no past chats, so click **"Load demo chats (for testing memory)"** at the bottom
@@ -45,7 +52,8 @@ before). Then try:
 | [docs/architecture.md](docs/architecture.md) | How one message flows through the system, stage by stage, with the data at each step |
 | [docs/decisions/](docs/decisions/README.md) | Every design decision: the options we weighed, what we chose, and why |
 | [docs/phases/](docs/phases/README.md) | What each build phase delivered, how it was checked, and any changes from the plan |
-| `DESIGN.md` | The one-page summary required by the challenge (written in Phase 6) |
+| [DESIGN.md](DESIGN.md) | The one-page design: how, why, rejected alternatives, next week |
+| [evals/latest.md](evals/latest.md) | The latest end-to-end eval run |
 
 ## Project layout
 
@@ -58,5 +66,6 @@ src/time/           clock (MOCK_NOW), date candidates, calendar, validation, tim
 src/components/     chat UI: App, Sidebar, ChatView, MessageView, Markdown, SearchActivity, Sources, MemoryStep
 src/lib/            helpers shared by server and UI: message parts, citations, date labels
 tests/              vitest unit tests
+scripts/eval.mjs    end-to-end evals (npm run eval)
 docs/               architecture, decision records, phase logs
 ```
