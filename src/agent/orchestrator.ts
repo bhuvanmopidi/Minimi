@@ -67,7 +67,7 @@ export function runTurn(turn: Turn): Response {
   const stream = createUIMessageStream({
     generateId: () => assistantId,
     execute: async ({ writer }) => {
-      writer.write({ type: "start", messageId: assistantId });
+      writer.write({ type: "start", messageId: assistantId, messageMetadata: { createdAt: startedAt.toISOString() } });
 
       // ④ recent turns (includes the just-saved user message as the last entry)
       const recent = recentMessages(db, conversationId, config.recentTurnLimit);

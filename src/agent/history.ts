@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import { sourcesInParts, type PartSource } from "@/lib/parts";
 import type { MessageRow } from "@/memory/repo";
 
 // Stored messages → what the model reads for the current conversation (docs/architecture.md, stage ④).
@@ -6,21 +7,11 @@ import type { MessageRow } from "@/memory/repo";
 const SOURCED_ANSWERS = 3; // the last N answers keep a compact list of their sources
 const MAX_SOURCES_PER_ANSWER = 8;
 
-type SourceLike = { n: number; title?: string; url: string };
-
 /** The sources an answer used, from its saved parts (tool calls and searches run before the answer). */
-export function sourcesFromParts(partsJson: string | null): SourceLike[] {
+export function sourcesFromParts(partsJson: string | null): PartSource[] {
   if (!partsJson) return [];
   try {
-    const parts = JSON.parse(partsJson) as { type: string; output?: unknown; data?: { output?: unknown } }[];
-    const byN = new Map<number, SourceLike>();
-    for (const p of parts) {
-      const output = (p.type === "tool-web_search" ? p.output : p.type === "data-search" ? p.data?.output : null) as
-        | { results?: SourceLike[] }
-        | null;
-      for (const s of output?.results ?? []) if (!byN.has(s.n)) byN.set(s.n, s);
-    }
-    return [...byN.values()].sort((a, b) => a.n - b.n);
+    return sourcesInParts(JSON.parse(partsJson) as unknown[]);
   } catch {
     return [];
   }

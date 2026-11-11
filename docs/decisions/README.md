@@ -18,6 +18,7 @@ and what it costs us. All of them were discussed and agreed before any code was 
 | [0011](0011-memory-recall.md) | Memory recall: planner-lite in Phase 2, three search modes, date-rule refinement, demo loader | Accepted (Phase 2) |
 | [0012](0012-recheck-prefetch-effort.md) | Re-checks from the claims ledger, searching before the answer, reasoning effort `medium` | Accepted (Phase 3) |
 | [0013](0013-robustness-long-chats.md) | Stop really stops, safe Retry, friendly errors, rolling summary, context budget, prompt caching | Accepted (Phase 4) |
+| [0014](0014-chat-ui.md) | Chat UI: safe markdown, citation chips, one search line + cited sources, visible time | Accepted (Phase 5) |
 
 Format: *Context → Options → Decision → Consequences.* A changed decision gets a new record that
 supersedes the old one. Old records are not rewritten.

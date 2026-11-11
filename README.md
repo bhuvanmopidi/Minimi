@@ -5,6 +5,8 @@ questions like *"Last Tuesday I asked you about Postgres hosting. Has any pricin
 
 Built for the Minimi hiring challenge. It's built phase by phase, and each phase is documented.
 
+![A re-check answer: it finds the 3 November chat, searches each fact again, and labels what changed](docs/images/recheck.png)
+
 ## Quick start
 
 ```bash
@@ -53,7 +55,8 @@ src/agent/          orchestrator (one turn end to end), planner, context block, 
 src/tools/          the web_search tool and the Tavily client
 src/memory/         SQLite database, migrations, repository, history search, demo chats, user cookie
 src/time/           clock (MOCK_NOW), date candidates, calendar, validation, timezone helpers
-src/components/     chat UI: App, Sidebar, ChatView, SearchStep, MemoryStep
+src/components/     chat UI: App, Sidebar, ChatView, MessageView, Markdown, SearchActivity, Sources, MemoryStep
+src/lib/            helpers shared by server and UI: message parts, citations, date labels
 tests/              vitest unit tests
 docs/               architecture, decision records, phase logs
 ```
