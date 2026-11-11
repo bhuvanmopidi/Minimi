@@ -31,3 +31,10 @@ from a fresh clone. Design: [ADR-0015](../decisions/0015-fresh-install-and-evals
   - The slow tail (CRM 18.8 s, Node.js 12.9 s) is when Sonnet searched a second time (`steps=2` in the
     `[turn]` log). The other turns produce their first word 1–3.5 s after the searches finish.
 - Fresh install, brief questions in a row: correct `not_found` each time (no false matches), with a snapshot + question.
+
+## Fresh-clone check (what a reviewer does)
+`git clone` → `npm install` (16 s, native SQLite binary prebuilt, no compiler needed) → `.env` →
+`npm run dev`: the page serves, the database is created automatically, "Load demo chats" works, and a memory
+question is answered correctly. The server log was clean except for one AI SDK warning about a system message
+inside `messages`. It's there only to carry the prompt-cache marker and is a constant, never user text, so it
+is now acknowledged explicitly (`allowSystemInMessages: true`). Caching still works (`cache_read=1910`).

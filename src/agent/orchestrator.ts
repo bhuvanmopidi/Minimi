@@ -167,6 +167,9 @@ export function runTurn(turn: Turn): Response {
           { role: "system", content: SYSTEM_PROMPT, providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } },
           ...messages,
         ],
+        // The system message lives in `messages` only to carry the cache marker (the `system` option is a
+        // plain string). It is a constant, never user text, so the SDK's injection warning doesn't apply.
+        allowSystemInMessages: true,
         tools: { web_search: createWebSearchTool(searchDeps) },
         providerOptions: { anthropic: { effort: config.mainEffort } },
         stopWhen: stepCountIs(config.maxSteps),
