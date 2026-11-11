@@ -1,16 +1,22 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MemoryStatus } from "@/agent/orchestrator";
+import { MemoryStep } from "./MemoryStep";
 import { SearchStep, type SearchPart } from "./SearchStep";
 
-function newConversationId() {
-  return `conv_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
-}
-
-export function Chat() {
-  const [conversationId, setConversationId] = useState(newConversationId);
+/** One conversation. Re-mounted (via `key`) when the user switches chats. */
+export function ChatView({
+  conversationId,
+  initialMessages,
+  onTurnFinished,
+}: {
+  conversationId: string;
+  initialMessages: UIMessage[];
+  onTurnFinished: () => void;
+}) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -29,7 +35,12 @@ export function Chat() {
       }),
     [],
   );
-  const { messages, sendMessage, status, error, stop } = useChat({ id: conversationId, transport });
+  const { messages, sendMessage, status, error, stop } = useChat({
+    id: conversationId,
+    messages: initialMessages,
+    transport,
+    onFinish: onTurnFinished,
+  });
   const busy = status === "submitted" || status === "streaming";
 
   useEffect(() => {
@@ -45,21 +56,13 @@ export function Chat() {
   }
 
   return (
-    <main className="mx-auto flex h-dvh max-w-3xl flex-col px-4">
-      <header className="flex items-center justify-between py-4 text-sm">
-        <span className="font-medium text-neutral-500">Minimi Chat</span>
-        <button
-          onClick={() => setConversationId(newConversationId())}
-          disabled={busy}
-          className="rounded-lg px-3 py-1 text-neutral-500 hover:bg-neutral-100 disabled:opacity-40 dark:hover:bg-neutral-800"
-        >
-          New chat
-        </button>
-      </header>
-
+    <div className="flex h-full flex-col">
       <div className="flex-1 space-y-6 overflow-y-auto pb-6">
         {messages.length === 0 && (
-          <p className="mt-24 text-center text-neutral-500">Ask me anything. I can search the web.</p>
+          <div className="mt-24 space-y-2 text-center text-neutral-500">
+            <p>Ask me anything. I can search the web and I remember our past chats.</p>
+            <p className="text-sm">Try: &ldquo;What did I ask you last week?&rdquo;</p>
+          </div>
         )}
         {messages.map((m) => (
           <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
@@ -78,6 +81,7 @@ export function Chat() {
                     </p>
                   );
                 }
+                if (part.type === "data-memory") return <MemoryStep key={i} status={part.data as MemoryStatus} />;
                 if (part.type === "tool-web_search") return <SearchStep key={i} part={part as SearchPart} />;
                 return null;
               })}
@@ -110,6 +114,6 @@ export function Chat() {
           </button>
         )}
       </form>
-    </main>
+    </div>
   );
 }

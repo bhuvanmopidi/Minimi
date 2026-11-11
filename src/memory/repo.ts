@@ -78,6 +78,34 @@ export function insertSearches(
   })();
 }
 
+export type ConversationSummary = { id: string; title: string; updatedAt: string };
+
+/** The user's conversations for the sidebar, most recent first. Untitled ones use their first question. */
+export function listConversations(db: Database.Database, userId: string, limit = 50): ConversationSummary[] {
+  return db
+    .prepare(
+      `SELECT c.id, c.updated_at AS updatedAt,
+              COALESCE(c.title, (SELECT substr(m.content, 1, 80) FROM messages m
+                                 WHERE m.conversation_id = c.id AND m.role = 'user'
+                                 ORDER BY m.created_at, m.rowid LIMIT 1), 'New chat') AS title
+       FROM conversations c
+       WHERE c.user_id = ? AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
+       ORDER BY c.updated_at DESC LIMIT ?`,
+    )
+    .all(userId, limit) as ConversationSummary[];
+}
+
+/** All messages of a conversation, oldest first, or null if it isn't this user's. */
+export function conversationMessages(db: Database.Database, conversationId: string, userId: string): MessageRow[] | null {
+  const owner = db.prepare("SELECT user_id FROM conversations WHERE id = ?").get(conversationId) as
+    | { user_id: string }
+    | undefined;
+  if (!owner || owner.user_id !== userId) return null;
+  return db
+    .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, rowid")
+    .all(conversationId) as MessageRow[];
+}
+
 /** The last `limit` messages of a conversation, oldest first (the order the model reads them). */
 export function recentMessages(db: Database.Database, conversationId: string, limit: number): MessageRow[] {
   const rows = db

@@ -24,6 +24,17 @@ npm run dev                  # http://localhost:3000
 
 Other scripts: `npm test` (unit tests), `npm run typecheck`.
 
+### Trying the memory features
+A fresh install has no past chats, so click **"Load demo chats (for testing memory)"** at the bottom
+of the sidebar. It adds three conversations labelled "Demo ·", dated relative to today (a CRM
+shortlist on the most recent Monday, a Postgres hosting comparison on the Tuesday of the week
+before). Then try:
+
+- *What did I ask you on 3 November?* (use the date shown on the Postgres demo chat)
+- *Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?*
+- *On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?*
+- *What did I ask you on 5 November?* (no chat that day: it says so instead of inventing one)
+
 ## Documentation
 
 | Doc | What it answers |
@@ -37,11 +48,11 @@ Other scripts: `npm test` (unit tests), `npm run typecheck`.
 
 ```
 src/app/            Next.js pages and API routes (api/chat = the agent endpoint)
-src/agent/          prompts, and later the planner, orchestrator and claim extraction
+src/agent/          orchestrator (one turn end to end), planner, context block, prompts
 src/tools/          the web_search tool and the Tavily client
-src/memory/         SQLite database, migrations, repository functions
-src/time/           clock (MOCK_NOW), and later date parsing and validation
-src/components/     chat UI
+src/memory/         SQLite database, migrations, repository, history search, demo chats, user cookie
+src/time/           clock (MOCK_NOW), date candidates, calendar, validation, timezone helpers
+src/components/     chat UI: App, Sidebar, ChatView, SearchStep, MemoryStep
 tests/              vitest unit tests
 docs/               architecture, decision records, phase logs
 ```

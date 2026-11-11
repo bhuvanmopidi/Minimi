@@ -14,11 +14,11 @@ BROWSER   ① sends {conversationId, message, timeZone, locale}
 SERVER    ② identify user (cookie) + conversation                     Phase 0 ✅
           ③ save the user message immediately                          Phase 0 ✅
           ④ load recent turns (+ summary of older ones)                Phase 0 ✅ (summary: Phase 4)
-          ⑤ date candidates (chrono-node, locale-aware)                Phase 2
-          ⑥ plan: ONE Haiku call → JSON plan (calls nothing)           Phase 3
-          ⑦ validate dates in code                                     Phase 2/3
-          ⑧ fan-out in parallel:                                       Phase 2/3
-               ├─ history lookup across ALL past chats (SQLite FTS5)
+          ⑤ date candidates (chrono-node, locale-aware)                Phase 2 ✅
+          ⑥ plan: ONE Haiku call → JSON plan (calls nothing)           Phase 2 ✅ (history + dates; searches: Phase 3)
+          ⑦ validate dates in code                                     Phase 2 ✅
+          ⑧ fan-out in parallel:                                       Phase 2 ✅ / 3
+               ├─ history lookup across ALL past chats (SQLite FTS5)   Phase 2 ✅
                └─ web searches (Tavily, cached)                        Phase 1 ✅ (prefetch: Phase 3)
           ⑨ build context (rules + dates + history + claims + sources)
           ⑩ Sonnet streams the answer; may call web_search again       Phase 1 ✅
@@ -75,9 +75,11 @@ those dates: is it real, is it in the past, is it in a sane window, does the wee
 fails, code falls back to chrono's candidate, or tells the model the date is unresolved so it asks the user.
 
 ### ⑧ Fan-out (parallel)
-- **History**: FTS5 keyword match + date range + user id, across all past conversations. Then the
-  claims stored for the matched answers ([ADR-0006](decisions/0006-claims-ledger.md)). Nothing found → an
-  explicit `not_found`, plus the nearest conversation ([ADR-0003](decisions/0003-memory-is-orchestration.md)).
+- **History**: FTS5 keyword match + date range + user id, across all past conversations, in three
+  modes (topic + date, date only, topic only), trying alternative readings and then "same topic,
+  other date" ([ADR-0011](decisions/0011-memory-recall.md)). Then the claims stored for the matched
+  answers ([ADR-0006](decisions/0006-claims-ledger.md), Phase 3). Nothing found → an explicit
+  `not_found`, plus the nearest conversations ([ADR-0003](decisions/0003-memory-is-orchestration.md)).
 - **Web**: one Tavily call per planned query, all at once, cached for 10 minutes. Results are
   trimmed and numbered in a per-turn source registry, so citation numbers stay stable.
   Details: [ADR-0010](decisions/0010-web-search-tool.md).

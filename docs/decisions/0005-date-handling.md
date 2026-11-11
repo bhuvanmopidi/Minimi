@@ -1,6 +1,6 @@
 # 0005: Dates. Code proposes, LLM picks, code validates
 
-**Status:** Accepted
+**Status:** Accepted. The disagreement rule was made precise in [0011 §3](0011-memory-recall.md) (Phase 2).
 
 ## Context
 A wrong date is a nasty bug here: the agent confidently says "you didn't ask me anything that day".

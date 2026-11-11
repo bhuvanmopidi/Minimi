@@ -1,27 +1,21 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { consumeStream, stepCountIs, streamText, type ModelMessage } from "ai";
-import { cookies } from "next/headers";
 import { z } from "zod";
-import { config, requireEnv } from "@/config";
-import { buildSystemPrompt } from "@/agent/prompts";
+import { requireEnv } from "@/config";
+import { runTurn } from "@/agent/orchestrator";
 import { getDb } from "@/memory/db";
 import { newId } from "@/memory/ids";
-import { getOrCreateConversation, insertMessage, insertSearches, recentMessages } from "@/memory/repo";
-import { isValidTimeZone, now } from "@/time/clock";
-import { createTavilyProvider } from "@/tools/tavily";
-import { createWebSearchTool, SourceRegistry, type SearchLogEntry } from "@/tools/webSearch";
+import { getOrCreateConversation, insertMessage } from "@/memory/repo";
+import { userIdFromCookies } from "@/memory/user";
+import { isValidLocale, isValidTimeZone, now } from "@/time/clock";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const USER_COOKIE = "minimi_uid";
-
-// The client sends only the new message; the server owns the conversation history.
+// The client sends only the new message; the server owns the conversation history (ADR-0007).
 const ChatRequest = z.object({
   conversationId: z.string().regex(/^conv_[A-Za-z0-9]{8,32}$/),
   message: z.object({ text: z.string().trim().min(1).max(8000) }),
   timeZone: z.string().optional(),
-  locale: z.string().optional(), // read by the date parser from Phase 2 (day-first vs month-first)
+  locale: z.string().optional(),
 });
 
 export async function POST(req: Request) {
@@ -36,83 +30,16 @@ export async function POST(req: Request) {
   if (!parsed.success) return new Response("Invalid request.", { status: 400 });
   const { conversationId, message } = parsed.data;
   const timeZone = isValidTimeZone(parsed.data.timeZone) ? parsed.data.timeZone : "UTC";
+  const locale = isValidLocale(parsed.data.locale) ? parsed.data.locale : "en-US";
 
-  // Anonymous identity: one id per browser, set on first visit.
-  const jar = await cookies();
-  let userId = jar.get(USER_COOKIE)?.value;
-  if (!userId) {
-    userId = newId("usr");
-    jar.set(USER_COOKIE, userId, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
-  }
-
+  const userId = await userIdFromCookies({ create: true });
   const db = getDb();
-  const startedAt = now();
-  const conversation = getOrCreateConversation(db, { id: conversationId, userId, at: startedAt.toISOString() });
+  const at = now().toISOString();
+  const conversation = getOrCreateConversation(db, { id: conversationId, userId, at });
   if (!conversation) return new Response("Conversation not found.", { status: 404 });
 
   // Save the user's message before any model work, so it survives a failed generation.
-  insertMessage(db, {
-    id: newId("msg"),
-    conversationId,
-    role: "user",
-    content: message.text,
-    tz: timeZone,
-    at: startedAt.toISOString(),
-  });
+  insertMessage(db, { id: newId("msg"), conversationId, role: "user", content: message.text, tz: timeZone, at });
 
-  const history: ModelMessage[] = recentMessages(db, conversationId, config.recentTurnLimit).map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
-
-  // Per-turn state: citation numbers stay stable across every search in this answer, and search
-  // snapshots wait here until the answer row exists (searches.message_id references it).
-  const registry = new SourceRegistry();
-  const searchLog: SearchLogEntry[] = [];
-
-  const result = streamText({
-    model: anthropic(config.mainModel),
-    system: buildSystemPrompt({ now: startedAt, timeZone }),
-    messages: history,
-    tools: {
-      web_search: createWebSearchTool({
-        db,
-        provider: createTavilyProvider(config.tavilyApiKey),
-        registry,
-        searchLog,
-        now,
-      }),
-    },
-    stopWhen: stepCountIs(config.maxSteps),
-  });
-
-  const assistantId = newId("msg");
-  return result.toUIMessageStreamResponse({
-    generateMessageId: () => assistantId,
-    // Keep reading the model stream even if the browser disconnects, so onFinish always runs.
-    consumeSseStream: consumeStream,
-    onFinish: ({ responseMessage, isAborted }) => {
-      const text = responseMessage.parts
-        .map((part) => (part.type === "text" ? part.text : ""))
-        .join("")
-        .trim();
-      if (!text) return;
-      db.transaction(() => {
-        insertMessage(db, {
-          id: assistantId,
-          conversationId,
-          role: "assistant",
-          content: text,
-          partsJson: JSON.stringify(responseMessage.parts),
-          aborted: isAborted,
-          at: now().toISOString(),
-        });
-        insertSearches(db, assistantId, searchLog);
-      })();
-    },
-    onError: (error) => {
-      console.error("[chat] stream error", error);
-      return "Something went wrong while generating the answer. Please try again.";
-    },
-  });
+  return runTurn({ db, conversationId, userId, text: message.text, timeZone, locale });
 }
