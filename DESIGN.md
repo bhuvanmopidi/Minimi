@@ -41,10 +41,12 @@ message ─► date candidates (chrono-node, code) ─► planner (Haiku, ONE JS
   tables and citation chips, honest "I have no record of that".
 
 ## Measured
-`npm run eval` runs 10 end-to-end cases over HTTP (the brief's three examples on seeded history *and* on a
-fresh install, numeric and ambiguous dates, no-record, follow-ups, small talk), with hard checks plus an
-LLM judge. **9/10 pass. First word p50 5.0 s, p90 18.8 s.** The slow tail is when Sonnet decides the early
-search results aren't enough and searches again. Latest run: [evals/latest.md](evals/latest.md).
+`npm run eval` runs 11 end-to-end cases over HTTP (the brief's three examples on seeded history *and* on a
+fresh install, numeric and ambiguous dates, no-record, a shopping question, follow-ups, small talk), with
+hard checks plus an LLM judge. **Two consecutive runs: 9/11 and 10/11. First word p50 5–6 s, p90 12–14 s.**
+Most failures are judge noise (one verdict failed an answer while saying it "meets the stated requirements").
+The real recurring weakness is noisy news results padding an answer. The slow tail is when Sonnet decides
+the early results aren't enough and searches again. Latest run: [evals/latest.md](evals/latest.md).
 
 ## Considered and rejected
 - **A ReAct agent with a `recall_history` tool:** breaks "one tool" and costs 2–3 sequential round-trips.
@@ -55,15 +57,18 @@ search results aren't enough and searches again. Latest run: [evals/latest.md](e
 - **Comparing against old prose:** labelled the same fact differently across runs. Replaced by the ledger.
 - **Searching speculatively while the planner runs:** spends a search on every message, including "hi".
 - **The Tavily SDK:** a zod version conflict; a 50-line `fetch` client gives full control.
+- **Full page text from search:** measured +2.7 s on every search, and most shops block it. Instead,
+  each result keeps its most useful passages (prices, query words), not its first 700 characters.
 
 ## With another week
 - **The slow tail:** start writing from the early search results while any extra search runs; filter
   low-relevance results (news searches sometimes return unrelated headlines).
 - **Proactive memory:** "Neon is $15 now; on 3 Nov I told you $19", even when not asked (a ledger lookup by entity).
 - **Fuzzier recall** ("that database thing"): embeddings as a second ranking signal next to FTS.
-- **Evals in CI** with more cases (locales, multi-turn, adversarial dates) and recorded search results,
-  so runs are deterministic.
+- **Evals in CI** with more cases (locales, multi-turn, adversarial dates), recorded search results so
+  runs are deterministic, and 3 judge votes per case to remove judge noise.
+- **Page detail on demand:** full page text only when the planner flags a shopping or pricing question.
 - Real accounts instead of a cookie; Postgres for multi-instance deploys.
 
 More detail: [docs/architecture.md](docs/architecture.md) (the flow, stage by stage) and
-[docs/decisions/](docs/decisions/README.md) (15 decision records with the options weighed).
+[docs/decisions/](docs/decisions/README.md) (16 decision records with the options weighed).

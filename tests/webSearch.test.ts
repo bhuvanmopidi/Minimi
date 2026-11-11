@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { openDatabase } from "@/memory/db";
 import { SearchNotConfiguredError, type SearchHit, type SearchProvider } from "@/tools/tavily";
-import { runWebSearch, SourceRegistry, trimSnippet, type SearchLogEntry, type WebSearchDeps } from "@/tools/webSearch";
+import {
+  runWebSearch,
+  selectPassages,
+  SourceRegistry,
+  trimSnippet,
+  type SearchLogEntry,
+  type WebSearchDeps,
+} from "@/tools/webSearch";
 
 const hit = (url: string, score = 0.5, content = "Some page text."): SearchHit => ({
   title: `Title of ${url}`,
@@ -105,6 +112,35 @@ describe("runWebSearch", () => {
     const { deps } = setup(provider);
     await runWebSearch({ queries: ["crm pricing"], since: "2026-11-09", topic: "news" }, deps);
     expect(provider.mock.calls[0][0]).toEqual({ query: "crm pricing", since: "2026-11-09", topic: "news" });
+  });
+});
+
+describe("selectPassages", () => {
+  const filler = "Our standard delivery service is available across India and ships within two days. ".repeat(12);
+
+  it("keeps a price that sits past the cut (seen live: 'no price in the snippet')", () => {
+    const page = `GHOST Whey Protein, 2 lb. ${filler}Regular price Rs. 7,599.00 Sale price Rs. 7,599.00.`;
+    const out = selectPassages(page, "Ghost Whey protein India price");
+    expect(out).toContain("Rs. 7,599.00");
+    expect(out.startsWith("GHOST Whey Protein, 2 lb.")).toBe(true); // opening kept for context
+    expect(out.length).toBeLessThanOrEqual(700);
+  });
+
+  it("doesn't split a currency from its amount ('Rs. 14,599')", () => {
+    const out = selectPassages(`${filler}Regular price Rs. 14,599.00 for the 5 lb tub.`, "price");
+    expect(out).toContain("Rs. 14,599.00");
+  });
+
+  it("keeps repeated text once and marks gaps with …", () => {
+    const page = `Intro line. ${"GHOST Whey Protein, 2 lb | ".repeat(20)}${filler}Launch plan is $19/month.`;
+    const out = selectPassages(page, "launch plan");
+    expect(out.match(/GHOST Whey Protein, 2 lb/g)?.length ?? 0).toBeLessThanOrEqual(1);
+    expect(out).toContain("… Launch plan is $19/month.");
+  });
+
+  it("returns short text unchanged and falls back to a clean cut when nothing stands out", () => {
+    expect(selectPassages("Short text.", "q")).toBe("Short text.");
+    expect(selectPassages(filler, "unrelated").length).toBeLessThanOrEqual(705);
   });
 });
 

@@ -32,7 +32,7 @@ export type WebSearchOutput =
 export class SourceRegistry {
   private byUrl = new Map<string, Source>();
 
-  add(hit: SearchHit): Source {
+  add(hit: SearchHit, query = ""): Source {
     const key = normalizeUrl(hit.url);
     const existing = this.byUrl.get(key);
     if (existing) return existing;
@@ -42,7 +42,7 @@ export class SourceRegistry {
       url: hit.url,
       domain: domainOf(hit.url),
       published: hit.published,
-      snippet: trimSnippet(hit.content),
+      snippet: selectPassages(hit.content, query),
     };
     this.byUrl.set(key, source);
     return source;
@@ -109,9 +109,9 @@ export async function runWebSearch(input: WebSearchInput, deps: WebSearchDeps): 
 
   // Best results first across all queries, then number them in that order.
   const hits = outcomes
-    .flatMap((o) => (o.ok ? o.hits : []))
-    .sort((a, b) => b.score - a.score);
-  const results = uniqueByN(hits.map((h) => deps.registry.add(h)));
+    .flatMap((o) => (o.ok ? o.hits.map((hit) => ({ hit, query: o.query })) : []))
+    .sort((a, b) => b.hit.score - a.hit.score);
+  const results = uniqueByN(hits.map(({ hit, query }) => deps.registry.add(hit, query)));
 
   return failed.length ? { results, failedQueries: failed.map((o) => o.query) } : { results };
 }
@@ -179,6 +179,55 @@ function writeCache(db: Database.Database, key: string, hits: SearchHit[], at: D
 }
 
 // --- helpers -----------------------------------------------------------------------------------
+
+// Prices, amounts and rates: what most "how much / what changed" questions turn on.
+const FIGURE = /[₹$€£¥]\s?\d|\b(?:rs\.?|inr|usd|eur)\s?\d|\d[\d,.]*\s?(?:%|\/\s?(?:mo|month|yr|year|user|seat)|per\s+(?:month|year|user|seat|gb|hour))|\b\d+(?:\.\d+)?\s?(?:gb|tb|mb|cu-hours?|vcpus?|credits)\b/i;
+
+/**
+ * Pick the most useful passages of a result instead of its first N characters. Seen live: a shop
+ * page had five prices after character 700, and the answer said "no price in the snippet".
+ * Passages that contain figures or the query's words win; the opening passage is always kept for
+ * context; the chosen passages stay in page order, with "…" marking gaps.
+ */
+export function selectPassages(text: string, query: string, max = SNIPPET_CHARS): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+
+  // Sentences, table cells and Tavily's chunk separators are natural passage boundaries. A full stop
+  // only ends a sentence when a capital follows, so "Rs. 14,599" stays together. Shop pages repeat
+  // product names many times, so identical passages are kept once.
+  const seen = new Set<string>();
+  const passages = clean
+    .split(/(?<=[.!?])\s+(?=[A-Z"“(])|\s+\|\s+|\s*\[\.\.\.\]\s*|\s+\.\.\.\s+/)
+    .flatMap((p) => (p.length > 240 ? p.match(/.{1,240}(?:\s|$)/g) ?? [p] : [p]))
+    .map((p) => p.trim())
+    .filter((p) => p && !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
+  const terms = query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length > 2);
+  const score = (p: string) => {
+    const lower = p.toLowerCase();
+    return (FIGURE.test(p) ? 3 : 0) + terms.filter((t) => lower.includes(t)).length;
+  };
+
+  const chosen = new Set<number>([0]);
+  let used = passages[0].length;
+  const ranked = passages
+    .map((p, i) => ({ i, s: score(p) }))
+    .filter(({ i, s }) => i > 0 && s > 0)
+    .sort((a, b) => b.s - a.s || a.i - b.i);
+  for (const { i } of ranked) {
+    if (used + passages[i].length + 3 > max) continue;
+    chosen.add(i);
+    used += passages[i].length + 3;
+  }
+  // Nothing scored: fall back to a clean cut of the start.
+  if (chosen.size === 1) return trimSnippet(clean, max);
+
+  const order = [...chosen].sort((a, b) => a - b);
+  return order.map((i, k) => (k > 0 && i !== order[k - 1] + 1 ? `… ${passages[i]}` : passages[i])).join(" ");
+}
 
 /** Collapse whitespace and cut at a sentence boundary near the limit, so the model gets clean text. */
 export function trimSnippet(text: string, max = SNIPPET_CHARS): string {

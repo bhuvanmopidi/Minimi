@@ -50,7 +50,10 @@ function Citation({ n, source }: { n: number; source?: PartSource }) {
       title={tip}
       className="mx-0.5 inline-block rounded bg-neutral-200 px-1 align-super text-[0.65em] leading-tight font-medium text-neutral-700 no-underline hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
     >
+      {/* Hidden brackets: copied text reads "[1][2]" instead of "12", and screen readers say "[1]". */}
+      <span className="sr-only">[</span>
       {n}
+      <span className="sr-only">]</span>
     </a>
   );
 }

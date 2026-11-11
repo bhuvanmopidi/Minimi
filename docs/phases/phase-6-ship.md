@@ -32,6 +32,18 @@ from a fresh clone. Design: [ADR-0015](../decisions/0015-fresh-install-and-evals
     `[turn]` log). The other turns produce their first word 1–3.5 s after the searches finish.
 - Fresh install, brief questions in a row: correct `not_found` each time (no false matches), with a snapshot + question.
 
+## Follow-up from a real session: passage selection ([ADR-0016](../decisions/0016-passage-selection.md))
+A real shopping question ("Ghost Whey in India, which sites, what price?") said "no price in the snippet"
+four times. The stored results showed that Tavily returns only ~150 characters for most shop pages, and our
+700-character cut dropped prices on the rest. Full page text was measured (+2.7 s per search, blocked by
+most shops) and rejected. Results now keep their most useful passages: price mentions kept rose from 3 to 8
+of 8 on the real data. Copying text with citation chips now gives "[1][2]", not "12".
+
+The eval set gained a shopping case (11 cases), and the judge was made fairer: it retries an unreadable
+reply, and it knows the questions asked earlier in the run. **Two consecutive full runs: 9/11 and 10/11,
+first word p50 5.2–6.2 s, p90 12.3–13.5 s.** Run-to-run variance and judge noise are visible (one verdict
+failed an answer while saying it met the requirements), so single runs shouldn't be over-read.
+
 ## Fresh-clone check (what a reviewer does)
 `git clone` → `npm install` (16 s, native SQLite binary prebuilt, no compiler needed) → `.env` →
 `npm run dev`: the page serves, the database is created automatically, "Load demo chats" works, and a memory

@@ -47,7 +47,7 @@ const CASES = [
     turns: ["Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"],
     expect: { memory: "found", minQueries: 3, cites: true },
     rubric:
-      "Finds the Postgres hosting conversation and says which Tuesday it means (3 November). Compares each provider's price then vs now, with citations.",
+      "Finds the Postgres hosting conversation and says which Tuesday it means (3 November). Compares each provider's price then (from the stored chat, no citation needed) vs now (with citations).",
   },
   {
     id: "numeric date 9-11-26 (en-IN)",
@@ -71,6 +71,14 @@ const CASES = [
     turns: ["What is the latest stable version of Node.js?"],
     expect: { memory: "none", minQueries: 1, cites: true },
     rubric: "Gives a specific current Node.js version, with a citation, and doesn't hedge needlessly.",
+  },
+  {
+    id: "shopping: availability + prices in India",
+    user: "seeded",
+    turns: ["Is Ghost Whey protein powder available in India? Which websites can I buy it from and at what price?"],
+    expect: { memory: "none", minQueries: 1, cites: true },
+    rubric:
+      "Says whether it's available in India and names at least two Indian sellers with a concrete rupee price for at least two of them, with citations. Caveats are fine; vague 'check the site' answers for every seller are not.",
   },
   {
     id: "small talk",
@@ -112,7 +120,15 @@ const SEEDED_HISTORY = `- Monday (most recent), 10:15: user asked for a 5-tool C
 
 // ---------------------------------------------------------------------------------------------
 
-const users = { seeded: { cookie: "" }, fresh: { cookie: "" } };
+// `asked` = questions sent earlier in this run: they become real history the assistant may mention.
+const users = { seeded: { cookie: "", asked: [] }, fresh: { cookie: "", asked: [] } };
+
+function historyFor(c) {
+  const user = users[c.user];
+  const earlier = user.asked.length ? `Earlier in this session (other chats, today):\n${user.asked.map((q) => `- ${q}`).join("\n")}` : "";
+  if (c.user === "seeded") return [SEEDED_HISTORY, earlier].filter(Boolean).join("\n");
+  return earlier || "(none: a brand-new user)";
+}
 
 async function post(user, path, body) {
   const res = await fetch(BASE + path, {
@@ -166,7 +182,13 @@ async function ask(user, conversationId, text) {
   return { answer: answer.trim(), sourceList, memory, queries, error, firstWordMs, totalMs: Date.now() - started };
 }
 
-async function judge(c, transcript, answer, sourceList) {
+/** The judge, retried once if its reply isn't readable JSON (a cut-off reply failed a correct answer once). */
+async function judge(c, transcript, answer, sourceList, history) {
+  const first = await judgeOnce(c, transcript, answer, sourceList, history);
+  return first.unparseable ? judgeOnce(c, transcript, answer, sourceList, history) : first;
+}
+
+async function judgeOnce(c, transcript, answer, sourceList, history) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
@@ -183,7 +205,7 @@ async function judge(c, transcript, answer, sourceList) {
           role: "user",
           content:
             `Rubric: ${c.rubric}\n\n` +
-            (c.user === "seeded" ? `The user's stored chat history (the assistant can see it):\n${SEEDED_HISTORY}\n\n` : "The user has NO stored chat history.\n\n") +
+            `The user's stored chat history (the assistant can see it):\n${history}\n\n` +
             `Conversation:\n${transcript}\n\nFinal answer to grade:\n${answer}\n\n` +
             `Sources shown to the user under the answer (what the [n] citations link to):\n${sourceList || "(none)"}`,
         },
@@ -196,7 +218,7 @@ async function judge(c, transcript, answer, sourceList) {
   try {
     return JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
-    return { pass: false, reason: `unparseable judge output: ${text.slice(0, 80)}` };
+    return { pass: false, unparseable: true, reason: `unparseable judge output: ${text.slice(0, 80)}` };
   }
 }
 
@@ -240,7 +262,8 @@ for (const c of CASES.filter((c) => !ONLY || c.id.includes(ONLY))) {
     r = { answer: "", memory: "none", queries: 0, error: e.message, firstWordMs: null, totalMs: 0 };
   }
   const fails = hardChecks(c.expect, r);
-  const verdict = await judge(c, transcript, r.answer, r.sourceList);
+  const verdict = await judge(c, transcript, r.answer, r.sourceList, historyFor(c));
+  user.asked.push(...c.turns);
   if (VERBOSE) console.log(`\n----- ${c.id}\n${r.answer}\n`);
   const pass = fails.length === 0 && verdict.pass === true;
   rows.push({ id: c.id, pass, fails, verdict, ...r });

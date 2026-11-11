@@ -1,6 +1,6 @@
 # 0010: Design of the web search tool
 
-**Status:** Accepted (Phase 1). Replaces the "`@tavily/core` SDK" detail in [0001](0001-tech-stack.md).
+**Status:** Accepted (Phase 1). Replaces the "`@tavily/core` SDK" detail in [0001](0001-tech-stack.md). §5 (trimming) refined by [0016](0016-passage-selection.md).
 
 ## Context
 Web search is the agent's only tool, so its shape decides how fast and how well the agent
