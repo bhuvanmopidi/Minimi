@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SearchStep, type SearchPart } from "./SearchStep";
 
 function newConversationId() {
   return `conv_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -69,13 +70,17 @@ export function Chat() {
                   : "leading-relaxed"
               }
             >
-              {m.parts.map((part, i) =>
-                part.type === "text" ? (
-                  <p key={i} className="whitespace-pre-wrap">
-                    {part.text}
-                  </p>
-                ) : null,
-              )}
+              {m.parts.map((part, i) => {
+                if (part.type === "text") {
+                  return (
+                    <p key={i} className="whitespace-pre-wrap">
+                      {part.text}
+                    </p>
+                  );
+                }
+                if (part.type === "tool-web_search") return <SearchStep key={i} part={part as SearchPart} />;
+                return null;
+              })}
             </div>
           </div>
         ))}

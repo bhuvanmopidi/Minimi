@@ -1,6 +1,6 @@
 # 0001: Tech stack
 
-**Status:** Accepted
+**Status:** Accepted. The Tavily *SDK* detail was replaced by a direct REST client in [0010](0010-web-search-tool.md) (Phase 1); Tavily itself stays.
 
 ## Context
 The challenge requires JavaScript/TypeScript on Node, `npm install && npm run dev`, and every API key

@@ -16,7 +16,7 @@ npm run dev                  # http://localhost:3000
 | Variable | Required | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | yes | Claude models (answers, planning, extraction) |
-| `TAVILY_API_KEY` | yes (from Phase 1) | Web search |
+| `TAVILY_API_KEY` | yes | Web search ([free tier](https://app.tavily.com/)). Without it the agent still runs but says it can't check the web |
 | `MAIN_MODEL` | no | Defaults to `claude-sonnet-5-5` |
 | `FAST_MODEL` | no | Defaults to `claude-haiku-5-5` |
 | `DATABASE_PATH` | no | Defaults to `./data/minimi.db` (created automatically) |
@@ -38,6 +38,7 @@ Other scripts: `npm test` (unit tests), `npm run typecheck`.
 ```
 src/app/            Next.js pages and API routes (api/chat = the agent endpoint)
 src/agent/          prompts, and later the planner, orchestrator and claim extraction
+src/tools/          the web_search tool and the Tavily client
 src/memory/         SQLite database, migrations, repository functions
 src/time/           clock (MOCK_NOW), and later date parsing and validation
 src/components/     chat UI

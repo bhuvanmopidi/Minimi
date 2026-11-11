@@ -14,6 +14,7 @@ and what it costs us. All of them were discussed and agreed before any code was 
 | [0007](0007-server-owns-history.md) | The server owns conversation history | Accepted |
 | [0008](0008-storage-sqlite-fts.md) | SQLite + FTS5, no vector database | Accepted |
 | [0009](0009-anonymous-identity.md) | Anonymous per-browser identity | Accepted |
+| [0010](0010-web-search-tool.md) | Web search tool design: parallel queries, advanced depth, fetch client, citations, cache, failures | Accepted (Phase 1) |
 
 Format: *Context → Options → Decision → Consequences.* A changed decision gets a new record that
 supersedes the old one. Old records are not rewritten.

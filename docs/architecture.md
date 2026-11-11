@@ -19,11 +19,11 @@ SERVER    ② identify user (cookie) + conversation                     Phase 0 
           ⑦ validate dates in code                                     Phase 2/3
           ⑧ fan-out in parallel:                                       Phase 2/3
                ├─ history lookup across ALL past chats (SQLite FTS5)
-               └─ web searches (Tavily, cached)                        Phase 1
+               └─ web searches (Tavily, cached)                        Phase 1 ✅ (prefetch: Phase 3)
           ⑨ build context (rules + dates + history + claims + sources)
-          ⑩ Sonnet streams the answer; may call web_search again       Phase 0 ✅ (tool: Phase 1)
-          ⑪ stream status → sources → text to the browser              Phase 0 ✅ (status: Phase 1)
-          ⑫ save the answer + searches                                 Phase 0 ✅ (searches: Phase 1)
+          ⑩ Sonnet streams the answer; may call web_search again       Phase 1 ✅
+          ⑪ stream status → sources → text to the browser              Phase 1 ✅
+          ⑫ save the answer + searches                                 Phase 1 ✅
           ⑬ background: extract claims, update summary (Haiku)         Phase 3/4
 ```
 
@@ -80,6 +80,7 @@ fails, code falls back to chrono's candidate, or tells the model the date is unr
   explicit `not_found`, plus the nearest conversation ([ADR-0003](decisions/0003-memory-is-orchestration.md)).
 - **Web**: one Tavily call per planned query, all at once, cached for 10 minutes. Results are
   trimmed and numbered in a per-turn source registry, so citation numbers stay stable.
+  Details: [ADR-0010](decisions/0010-web-search-tool.md).
 
 ### ⑨ Context for the main model
 A fixed system prompt (prompt-cached) + the conversation + a per-turn context block:

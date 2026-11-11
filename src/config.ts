@@ -18,6 +18,10 @@ export const config = {
   fastModel: optional("FAST_MODEL", "claude-haiku-5-5"),
   databasePath: optional("DATABASE_PATH", "./data/minimi.db"),
   mockNow: process.env.MOCK_NOW?.trim() || undefined,
+  // Optional at startup: without it the search tool reports "not configured" and the agent says so.
+  tavilyApiKey: process.env.TAVILY_API_KEY?.trim() || undefined,
+  // Max model steps per turn (each search + read is one step). Caps latency and cost.
+  maxSteps: 5,
   // How many recent messages of the current conversation go to the model verbatim.
   recentTurnLimit: 12,
 };

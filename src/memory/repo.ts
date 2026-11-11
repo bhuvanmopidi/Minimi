@@ -64,6 +64,20 @@ export function insertMessage(
   })();
 }
 
+/** Raw snapshots of the web searches behind one assistant message. */
+export function insertSearches(
+  db: Database.Database,
+  messageId: string,
+  searches: { id: string; query: string; since?: string; resultsJson: string; fetchedAt: string }[],
+): void {
+  const stmt = db.prepare(
+    "INSERT INTO searches (id, message_id, query, since, results_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?)",
+  );
+  db.transaction(() => {
+    for (const s of searches) stmt.run(s.id, messageId, s.query, s.since ?? null, s.resultsJson, s.fetchedAt);
+  })();
+}
+
 /** The last `limit` messages of a conversation, oldest first (the order the model reads them). */
 export function recentMessages(db: Database.Database, conversationId: string, limit: number): MessageRow[] {
   const rows = db

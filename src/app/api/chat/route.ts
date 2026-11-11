@@ -1,13 +1,15 @@
 import { anthropic } from "@ai-sdk/anthropic";
-import { consumeStream, streamText, type ModelMessage } from "ai";
+import { consumeStream, stepCountIs, streamText, type ModelMessage } from "ai";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { config, requireEnv } from "@/config";
 import { buildSystemPrompt } from "@/agent/prompts";
 import { getDb } from "@/memory/db";
 import { newId } from "@/memory/ids";
-import { getOrCreateConversation, insertMessage, recentMessages } from "@/memory/repo";
+import { getOrCreateConversation, insertMessage, insertSearches, recentMessages } from "@/memory/repo";
 import { isValidTimeZone, now } from "@/time/clock";
+import { createTavilyProvider } from "@/tools/tavily";
+import { createWebSearchTool, SourceRegistry, type SearchLogEntry } from "@/tools/webSearch";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -63,10 +65,25 @@ export async function POST(req: Request) {
     content: m.content,
   }));
 
+  // Per-turn state: citation numbers stay stable across every search in this answer, and search
+  // snapshots wait here until the answer row exists (searches.message_id references it).
+  const registry = new SourceRegistry();
+  const searchLog: SearchLogEntry[] = [];
+
   const result = streamText({
     model: anthropic(config.mainModel),
     system: buildSystemPrompt({ now: startedAt, timeZone }),
     messages: history,
+    tools: {
+      web_search: createWebSearchTool({
+        db,
+        provider: createTavilyProvider(config.tavilyApiKey),
+        registry,
+        searchLog,
+        now,
+      }),
+    },
+    stopWhen: stepCountIs(config.maxSteps),
   });
 
   const assistantId = newId("msg");
@@ -80,15 +97,18 @@ export async function POST(req: Request) {
         .join("")
         .trim();
       if (!text) return;
-      insertMessage(db, {
-        id: assistantId,
-        conversationId,
-        role: "assistant",
-        content: text,
-        partsJson: JSON.stringify(responseMessage.parts),
-        aborted: isAborted,
-        at: now().toISOString(),
-      });
+      db.transaction(() => {
+        insertMessage(db, {
+          id: assistantId,
+          conversationId,
+          role: "assistant",
+          content: text,
+          partsJson: JSON.stringify(responseMessage.parts),
+          aborted: isAborted,
+          at: now().toISOString(),
+        });
+        insertSearches(db, assistantId, searchLog);
+      })();
     },
     onError: (error) => {
       console.error("[chat] stream error", error);
